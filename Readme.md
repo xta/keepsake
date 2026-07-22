@@ -208,7 +208,7 @@ For a family archive this is an accepted tradeoff. A lost edit costs a retyped t
 
 ## Bucket setup
 
-Enable a lifecycle rule limiting file versions. Backblaze B2 retains all versions by default, and every sidecar edit creates one. A library edited over years accumulates thousands of tiny JSON revisions that quietly cost money.
+If your provider supports object versioning, configure it to limit retained versions. Sidecars are rewritten on every metadata edit, and a library edited over years accumulates thousands of tiny JSON revisions that quietly cost money.
 
 ## License
 
