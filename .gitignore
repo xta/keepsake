@@ -1,0 +1,35 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+Icon?
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+
+# Environment / secrets
+.env
+.env.*
+*.local
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# Misc
+tmp/
+*.tmp
