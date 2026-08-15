@@ -130,8 +130,13 @@ list. `escape` returns to the list from anywhere.
 | `o` | Open the selected video in your system player |
 | `u` | Show only untitled items |
 | `ctrl+s` | Save |
-| `ctrl+q` | Save and quit |
+| `q` | Quit — offers save, discard, or cancel if anything is unsaved |
+| `ctrl+q` | Save and quit, without asking |
 | `escape` | Back to the list |
+
+`q` only interrupts when leaving would lose work; with nothing pending it just
+exits. Discarding still rebuilds `index.json` if you saved earlier in the
+session, since those writes are already on the bucket.
 
 The bare letters act only from the list — a focused field consumes printable
 keys, so typing "out" in a title stays text. `ctrl+o` works from anywhere.

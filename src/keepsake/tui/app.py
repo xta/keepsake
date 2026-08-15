@@ -14,7 +14,9 @@ from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.widgets import DataTable, Footer, Header, Input, Label, Static
+from textual.screen import ModalScreen
+from textual.theme import Theme
+from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Static
 
 from keepsake.core import index as index_mod
 from keepsake.core.classify import classify
@@ -23,6 +25,69 @@ from keepsake.storage.base import Bucket
 from keepsake.tui.library import EDITABLE, Item, load_items, open_externally, save_item, titled
 
 NO_TITLE = "—"
+
+#: One theme, pinned. This is a tool for reading filenames and typing titles
+#: for hours, so the palette stays low-chroma and high-contrast: a near-black
+#: ground, soft off-white text, and a single muted blue for whatever is
+#: selected. Colour is reserved for the few things that carry meaning.
+KEEPSAKE_THEME = Theme(
+    name="keepsake",
+    dark=True,
+    background="#17191e",
+    surface="#1e2128",
+    panel="#272b33",
+    foreground="#dcdfe4",
+    primary="#8fb8de",
+    secondary="#6b7280",
+    accent="#e0b877",
+    success="#98c379",
+    warning="#e0b877",
+    error="#e06c75",
+    variables={
+        # The row cursor is a filled bar; dark text on it keeps the filename
+        # readable rather than glowing.
+        "block-cursor-foreground": "#17191e",
+        "block-cursor-background": "#8fb8de",
+        "block-cursor-text-style": "none",
+        "footer-key-foreground": "#e0b877",
+        "input-selection-background": "#8fb8de 35%",
+    },
+)
+
+
+class ConfirmQuit(ModalScreen[str]):
+    """Asked only when leaving would lose work. Dismisses with the choice."""
+
+    BINDINGS = [
+        Binding("s", "choose('save')", "Save & quit"),
+        Binding("d", "choose('discard')", "Discard"),
+        Binding("escape", "choose('cancel')", "Cancel"),
+    ]
+
+    def __init__(self, pending: int):
+        super().__init__()
+        self.pending = pending
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="dialog"):
+            yield Label(
+                f"{self.pending} unsaved change{'' if self.pending == 1 else 's'}.",
+                id="dialog-text",
+            )
+            with Horizontal(id="dialog-buttons"):
+                yield Button("Save & quit", variant="primary", id="save")
+                yield Button("Discard", variant="error", id="discard")
+                yield Button("Cancel", id="cancel")
+
+    def on_mount(self) -> None:
+        self.query_one("#save", Button).focus()
+
+    def action_choose(self, choice: str) -> None:
+        self.dismiss(choice)
+
+    @on(Button.Pressed)
+    def _button(self, event: Button.Pressed) -> None:
+        self.dismiss(event.button.id or "cancel")
 
 
 class MediaTable(DataTable):
@@ -65,12 +130,16 @@ class KeepsakeApp(App):
 
     CSS_PATH = "app.tcss"
     TITLE = "keepsake"
+    # No theme switching, so no command palette either -- it exists mostly to
+    # offer that, and this app has five keys.
+    ENABLE_COMMAND_PALETTE = False
 
     BINDINGS = [
         Binding("ctrl+s", "save", "Save"),
         Binding("o", "open_media", "Open in player"),
         Binding("u", "toggle_untitled", "Untitled only"),
         Binding("escape", "focus_list", "Back to list"),
+        Binding("q", "quit_asking", "Quit"),
         Binding("ctrl+q", "finish", "Save & quit"),
         # A focused Input consumes printable keys, so the bare letters above
         # only fire from the list. ctrl+o works from anywhere and is hidden to
@@ -106,6 +175,8 @@ class KeepsakeApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
+        self.register_theme(KEEPSAKE_THEME)
+        self.theme = KEEPSAKE_THEME.name
         table = self.query_one("#items", DataTable)
         table.add_column("media", key="media")
         table.add_column("title", key="title")
@@ -260,16 +331,35 @@ class KeepsakeApp(App):
         self._refill()
 
     def action_finish(self) -> None:
+        """Save everything and leave, without asking."""
         self._finish()
 
+    def action_quit_asking(self) -> None:
+        """Leave. Only interrupts when there is work that would be lost."""
+        pending = sum(1 for item in self.items if item.dirty)
+        if not pending:
+            self._finish()
+            return
+        self.push_screen(ConfirmQuit(pending), self._quit_choice)
+
+    def _quit_choice(self, choice: str | None) -> None:
+        if choice == "save":
+            self._finish()
+        elif choice == "discard":
+            self._finish(save_pending=False)
+        # "cancel" or dismissed: stay where we are.
+
     @work(thread=True)
-    def _finish(self) -> None:
-        for item in [i for i in self.items if i.dirty]:
-            save_item(self.bucket, item)
-            self._wrote_anything = True
+    def _finish(self, save_pending: bool = True) -> None:
+        if save_pending:
+            for item in [i for i in self.items if i.dirty]:
+                save_item(self.bucket, item)
+                self._wrote_anything = True
         if self._wrote_anything:
             # Sidecars are the source of truth; the catalog is rebuilt once, on
-            # the way out, rather than on every keystroke-sized save.
+            # the way out, rather than on every keystroke-sized save. This runs
+            # even when discarding, because earlier saves are already on the
+            # bucket and the catalog has to reflect them.
             result = classify(self.bucket.list(self.prefix))
             index_mod.write(self.bucket, index_mod.build_index(result, self.bucket))
         self.call_from_thread(self.exit)

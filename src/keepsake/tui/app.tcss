@@ -28,3 +28,28 @@
     color: $text-muted;
     padding-top: 1;
 }
+
+ConfirmQuit {
+    align: center middle;
+}
+
+#dialog {
+    width: 60;
+    height: auto;
+    padding: 1 2;
+    border: thick $warning;
+    background: $surface;
+}
+
+#dialog-text {
+    padding-bottom: 1;
+}
+
+#dialog-buttons {
+    height: auto;
+    align-horizontal: right;
+}
+
+#dialog-buttons Button {
+    margin-left: 1;
+}

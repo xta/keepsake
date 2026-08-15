@@ -233,6 +233,100 @@ class TestApp:
         titles = {item["path"]: item.get("title") for item in catalog["items"]}
         assert titles["2026/05/IMG_0002.MOV"] == "Spring concert"
 
+    async def test_quitting_clean_does_not_ask(self, bucket):
+        app = KeepsakeApp(bucket, label="test-bucket")
+        async with app.run_test() as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            app.query_one("#items").focus()
+            await pilot.press("q")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+        assert bucket.head("index.json") is None
+
+    async def test_discarding_leaves_the_sidecar_untouched(self, bucket):
+        app = KeepsakeApp(bucket, label="test-bucket")
+        async with app.run_test() as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            app.query_one("#field-title").value = "Typed by mistake"
+            await pilot.pause()
+
+            app.query_one("#items").focus()
+            await pilot.press("q")
+            await pilot.pause()
+            await pilot.press("d")              # discard
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+        assert "title" not in json.loads(bucket.get("2026/05/IMG_0002.MOV.json"))
+
+    async def test_cancelling_stays_in_the_app_with_edits_intact(self, bucket):
+        app = KeepsakeApp(bucket, label="test-bucket")
+        async with app.run_test() as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            app.query_one("#field-title").value = "Keep me"
+            await pilot.pause()
+
+            app.query_one("#items").focus()
+            await pilot.press("q")
+            await pilot.pause()
+            await pilot.press("escape")         # cancel
+            await pilot.pause()
+
+            assert app.is_running
+            assert app.items[0].dirty
+            assert app.items[0].text("title") == "Keep me"
+
+    async def test_quit_dialog_can_save(self, bucket):
+        app = KeepsakeApp(bucket, label="test-bucket")
+        async with app.run_test() as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            app.query_one("#field-title").value = "Spring concert"
+            await pilot.pause()
+
+            app.query_one("#items").focus()
+            await pilot.press("q")
+            await pilot.pause()
+            await pilot.press("s")              # save & quit
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+        assert json.loads(bucket.get("2026/05/IMG_0002.MOV.json"))["title"] == "Spring concert"
+
+    async def test_discard_still_rebuilds_the_catalog_after_an_earlier_save(self, bucket):
+        """Edits saved earlier are already on the bucket; the index must match."""
+        app = KeepsakeApp(bucket, label="test-bucket")
+        async with app.run_test() as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            app.query_one("#field-title").value = "Committed"
+            await pilot.pause()
+            await pilot.press("ctrl+s")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            app.query_one("#field-location").value = "Discarded"
+            await pilot.pause()
+
+            app.query_one("#items").focus()
+            await pilot.press("q")
+            await pilot.pause()
+            await pilot.press("d")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+        stored = json.loads(bucket.get("2026/05/IMG_0002.MOV.json"))
+        assert stored["title"] == "Committed"
+        assert "location" not in stored
+        assert json.loads(bucket.get("index.json"))["count"] == 2
+
     async def test_no_catalog_write_when_nothing_changed(self, bucket):
         app = KeepsakeApp(bucket, label="test-bucket")
         async with app.run_test() as pilot:
