@@ -6,36 +6,38 @@ from keepsake.config import ConfigError, load_profiles, resolve_profile
 
 ENV = {
     "KEEPSAKE_ENDPOINT": "https://s3.us-east-001.backblazeb2.com",
-    "KEEPSAKE_FAMILY_BUCKET": "media-main",
-    "KEEPSAKE_FAMILY_ID": "id1",
-    "KEEPSAKE_FAMILY_KEY": "key1",
-    "KEEPSAKE_ARCHIVE_BUCKET": "media-archive",
-    "KEEPSAKE_ARCHIVE_ID": "id2",
-    "KEEPSAKE_ARCHIVE_KEY": "key2",
+    "KEEPSAKE_JANE_BUCKET": "media-jane",
+    "KEEPSAKE_JANE_ID": "id1",
+    "KEEPSAKE_JANE_KEY": "key1",
+    "KEEPSAKE_JOHN_BUCKET": "media-john",
+    "KEEPSAKE_JOHN_ID": "id2",
+    "KEEPSAKE_JOHN_KEY": "key2",
 }
 
 
 def test_discovers_a_profile_per_bucket_var():
     profiles = load_profiles(ENV)
-    assert sorted(profiles) == ["archive", "family"]
-    assert profiles["family"].bucket == "media-main"
-    assert profiles["family"].endpoint.endswith("backblazeb2.com")
+    assert sorted(profiles) == ["jane", "john"]
+    assert profiles["jane"].bucket == "media-jane"
+    assert profiles["jane"].endpoint.endswith("backblazeb2.com")
 
 
 def test_unprefixed_vars_are_ignored():
     profiles = load_profiles({**ENV, "AWS_BUCKET": "unrelated", "BACKUP_BUCKET": "nope"})
-    assert sorted(profiles) == ["archive", "family"]
+    assert sorted(profiles) == ["jane", "john"]
 
 
 def test_per_profile_endpoint_overrides_the_shared_one():
-    profiles = load_profiles({**ENV, "KEEPSAKE_ARCHIVE_ENDPOINT": "https://s3.eu-central-003.backblazeb2.com"})
-    assert "eu-central-003" in profiles["archive"].endpoint
-    assert "us-east-001" in profiles["family"].endpoint
+    profiles = load_profiles(
+        {**ENV, "KEEPSAKE_JOHN_ENDPOINT": "https://s3.eu-central-003.backblazeb2.com"}
+    )
+    assert "eu-central-003" in profiles["john"].endpoint
+    assert "us-east-001" in profiles["jane"].endpoint
 
 
 def test_incomplete_profile_names_the_missing_vars():
-    with pytest.raises(ConfigError, match="KEEPSAKE_FAMILY_KEY"):
-        load_profiles({k: v for k, v in ENV.items() if k != "KEEPSAKE_FAMILY_KEY"})
+    with pytest.raises(ConfigError, match="KEEPSAKE_JANE_KEY"):
+        load_profiles({k: v for k, v in ENV.items() if k != "KEEPSAKE_JANE_KEY"})
 
 
 def test_underscores_are_allowed_in_profile_names():
@@ -55,13 +57,13 @@ def test_resolve_requires_a_choice_when_several_exist(monkeypatch):
     profiles = load_profiles(ENV)
     with pytest.raises(ConfigError, match="multiple profiles"):
         resolve_profile(None, profiles)
-    assert resolve_profile("family", profiles).bucket == "media-main"
+    assert resolve_profile("jane", profiles).bucket == "media-jane"
 
 
 def test_resolve_defaults_to_the_only_profile(monkeypatch):
     monkeypatch.delenv("KEEPSAKE_PROFILE", raising=False)
-    only = {k: v for k, v in ENV.items() if not k.startswith("KEEPSAKE_ARCHIVE")}
-    assert resolve_profile(None, load_profiles(only)).name == "family"
+    only = {k: v for k, v in ENV.items() if not k.startswith("KEEPSAKE_JOHN")}
+    assert resolve_profile(None, load_profiles(only)).name == "jane"
 
 
 def test_unknown_profile_is_rejected():

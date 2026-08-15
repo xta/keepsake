@@ -56,14 +56,19 @@ profile named `<name>` in lowercase:
 ```sh
 KEEPSAKE_ENDPOINT=https://s3.us-east-001.backblazeb2.com
 
-KEEPSAKE_FAMILY_BUCKET=media-main
-KEEPSAKE_FAMILY_ID=...
-KEEPSAKE_FAMILY_KEY=...
+KEEPSAKE_JANE_BUCKET=media-jane
+KEEPSAKE_JANE_ID=...
+KEEPSAKE_JANE_KEY=...
 ```
 
 Adding a bucket is three lines and no code. The SigV4 region is derived from
 the endpoint hostname, so there is no region to get wrong. The `KEEPSAKE_`
 prefix matters — discovery scans the whole environment, not just `.env`.
+
+A profile is just a bucket, so name them however suits you. One per person is
+a natural fit — SPEC.md gives each library its own bucket, and a bucket-scoped
+B2 key per profile means one person's credentials cannot reach another's
+videos.
 
 Profile resolution: `--profile/-p`, then `KEEPSAKE_PROFILE`, then the only
 profile if there is exactly one.
@@ -81,13 +86,13 @@ Four verbs, matching the four things you actually want to do:
 | `keepsake version` | |
 
 ```sh
-uv run keepsake profiles --verify        # list profiles, reach each bucket
-uv run keepsake status -p family         # survey + findings
-uv run keepsake status -p family --files # every key
-uv run keepsake sync -p family           # show every change it would make
-uv run keepsake sync -p family --details # ...including full sidecar contents
-uv run keepsake sync -p family --apply   # write them
-uv run keepsake edit -p family           # terminal UI
+uv run keepsake profiles --verify      # list profiles, reach each bucket
+uv run keepsake status -p jane         # survey + findings
+uv run keepsake status -p jane --files # every key
+uv run keepsake sync -p jane           # show every change it would make
+uv run keepsake sync -p jane --details # ...including full sidecar contents
+uv run keepsake sync -p jane --apply   # write them
+uv run keepsake edit -p jane           # terminal UI
 ```
 
 `sync` writes a stub sidecar for any media lacking one, then rebuilds
@@ -99,7 +104,7 @@ running it again writes nothing, and it skips rewriting an unchanged
 Adding videos to a bucket later, by any means, is followed by one command:
 
 ```sh
-uv run keepsake sync -p family --apply
+uv run keepsake sync -p jane --apply
 ```
 
 ### `keepsake edit`
@@ -108,7 +113,7 @@ A list of the library on the left, a form on the right. Arrow through, type,
 save.
 
 ```
-┌─ media-main ─────────────────────────┬─ IMG_0002.MOV ────────┐
+┌─ media-jane ─────────────────────────┬─ IMG_0002.MOV ────────┐
 │ ● 2026/05/IMG_0002.MOV   —      62MB │ title       [       ] │
 │   2026/05/IMG_0007.MOV   Recital     │ recorded_at [       ] │
 │                                      │ tags        [       ] │
