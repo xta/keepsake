@@ -7,9 +7,10 @@
 .Trashes
 Icon?
 
-# Editors / IDEs
+# Editors / IDEs / agents
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 *~
@@ -21,10 +22,20 @@ logs/
 # Environment / secrets
 .env
 .env.*
+!.env.example
 *.local
 
 # Dependencies
 node_modules/
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
 
 # Build output
 dist/
