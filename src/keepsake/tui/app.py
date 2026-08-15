@@ -15,7 +15,6 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.theme import Theme
 from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Static
 
 from keepsake.core import index as index_mod
@@ -26,33 +25,9 @@ from keepsake.tui.library import EDITABLE, Item, load_items, open_externally, sa
 
 NO_TITLE = "—"
 
-#: One theme, pinned. This is a tool for reading filenames and typing titles
-#: for hours, so the palette stays low-chroma and high-contrast: a near-black
-#: ground, soft off-white text, and a single muted blue for whatever is
-#: selected. Colour is reserved for the few things that carry meaning.
-KEEPSAKE_THEME = Theme(
-    name="keepsake",
-    dark=True,
-    background="#17191e",
-    surface="#1e2128",
-    panel="#272b33",
-    foreground="#dcdfe4",
-    primary="#8fb8de",
-    secondary="#6b7280",
-    accent="#e0b877",
-    success="#98c379",
-    warning="#e0b877",
-    error="#e06c75",
-    variables={
-        # The row cursor is a filled bar; dark text on it keeps the filename
-        # readable rather than glowing.
-        "block-cursor-foreground": "#17191e",
-        "block-cursor-background": "#8fb8de",
-        "block-cursor-text-style": "none",
-        "footer-key-foreground": "#e0b877",
-        "input-selection-background": "#8fb8de 35%",
-    },
-)
+#: Pinned so the app looks the same everywhere. Swap for any name in
+#: textual.theme.BUILTIN_THEMES; ctrl+p previews them live.
+THEME = "tokyo-night"
 
 
 class ConfirmQuit(ModalScreen[str]):
@@ -130,9 +105,6 @@ class KeepsakeApp(App):
 
     CSS_PATH = "app.tcss"
     TITLE = "keepsake"
-    # No theme switching, so no command palette either -- it exists mostly to
-    # offer that, and this app has five keys.
-    ENABLE_COMMAND_PALETTE = False
 
     BINDINGS = [
         Binding("ctrl+s", "save", "Save"),
@@ -175,8 +147,7 @@ class KeepsakeApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        self.register_theme(KEEPSAKE_THEME)
-        self.theme = KEEPSAKE_THEME.name
+        self.theme = THEME
         table = self.query_one("#items", DataTable)
         table.add_column("media", key="media")
         table.add_column("title", key="title")
