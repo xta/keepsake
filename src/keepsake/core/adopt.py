@@ -20,9 +20,16 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from keepsake.core.classify import Classification, suspected_orphan_thumbnails
+from keepsake.core.classify import Classification
+from keepsake.core.survey import MEDIA_EXTS, extension_of
 from keepsake.models import SCHEMA_VERSION
-from keepsake.storage.base import SIDECAR_SUFFIX, Bucket
+from keepsake.storage.base import (
+    SIDECAR_SUFFIX,
+    Bucket,
+    MediaWriteRefused,
+    ReadOnlyBucket,
+    has_extension,
+)
 
 # Extensions the stdlib does not know, or knows differently than we want.
 MEDIA_TYPE_OVERRIDES = {
@@ -38,9 +45,9 @@ MEDIA_TYPE_OVERRIDES = {
 
 
 def guess_media_type(key: str) -> str | None:
-    base = key.rsplit("/", 1)[-1]
-    if "." not in base:
+    if not has_extension(key):
         return None
+    base = key.rsplit("/", 1)[-1]
     ext = "." + base.rsplit(".", 1)[-1].lower()
     if ext in MEDIA_TYPE_OVERRIDES:
         return MEDIA_TYPE_OVERRIDES[ext]
@@ -62,22 +69,26 @@ class Stub:
         return json.dumps(self.payload, indent=2, ensure_ascii=False).encode("utf-8")
 
 
-def plan(result: Classification, *, new_id) -> list[Stub]:
+def plan(
+    result: Classification,
+    *,
+    new_id,
+    include_unrecognised: bool = False,
+) -> list[Stub]:
     """Stubs that would be written, for every unindexed media file.
 
     `new_id` is injected so tests can pin identifiers; production passes a ULID
     factory.
 
-    Keys that look like thumbnails of other unindexed media are skipped. Giving
-    `clip.mp4.jpg` its own sidecar would enshrine a derived file as a library
-    item; once `clip.mp4` has a sidecar, the next classification recognises the
-    thumbnail on its own.
+    Keys whose extension is not recognised media are skipped by default, so a
+    stray `notes.txt` never becomes a library item. Nothing is lost by that:
+    classification still lists the file as unindexed and `check` still reports
+    it, so a real video in an unfamiliar format is visible and can be adopted
+    deliberately with `include_unrecognised`.
     """
-    skip = set(suspected_orphan_thumbnails(result).values())
-
     stubs: list[Stub] = []
     for media_key in result.unindexed:
-        if media_key in skip:
+        if not include_unrecognised and extension_of(media_key) not in MEDIA_EXTS:
             continue
         obj = result.objects[media_key]
 
@@ -99,6 +110,14 @@ def plan(result: Classification, *, new_id) -> list[Stub]:
         if media_type:
             payload["media_type"] = media_type
 
+        # Classification recognises a thumbnail before its media has a sidecar,
+        # so when one is already sitting there the stub can record it instead
+        # of leaving the field blank on a file whose thumbnail exists.
+        thumbnail = result.thumbnails.get(media_key)
+        if thumbnail:
+            # SPEC.md: filename relative to the sidecar's own directory.
+            payload["thumbnail"] = thumbnail.rsplit("/", 1)[-1]
+
         stubs.append(
             Stub(
                 media_key=media_key,
@@ -110,14 +129,33 @@ def plan(result: Classification, *, new_id) -> list[Stub]:
     return stubs
 
 
-def apply(bucket: Bucket, stubs: list[Stub]) -> int:
-    """Write each stub. Returns the number written.
+def apply(bucket: Bucket, stubs: list[Stub]) -> tuple[int, list[tuple[str, str]]]:
+    """Write each stub. Returns the number written and any failures.
 
     Sidecars are the commit marker in SPEC.md's write order, and the media
     files already exist, so each write completes one file's adoption.
+
+    A failed write does not abort the run. Each sidecar is an independent
+    commit marker, so a partial adoption is a safe state -- the files that did
+    not get one stay unindexed, which is a state the tool already understands.
+    Stopping at the first error would just adopt fewer of them.
+
+    The guard exceptions are the exception. A read-only bucket or a refused
+    media write means the caller asked for something it should never have been
+    able to ask for, which is a bug rather than a bad object, so those still
+    raise.
     """
     written = 0
+    failures: list[tuple[str, str]] = []
     for stub in stubs:
-        bucket.put(stub.sidecar_key, stub.serialize(), content_type="application/json")
+        try:
+            bucket.put(
+                stub.sidecar_key, stub.serialize(), content_type="application/json"
+            )
+        except (ReadOnlyBucket, MediaWriteRefused):
+            raise
+        except Exception as exc:  # noqa: BLE001 - reported verbatim to the caller
+            failures.append((stub.sidecar_key, f"{type(exc).__name__}: {exc}"))
+            continue
         written += 1
-    return written
+    return written, failures

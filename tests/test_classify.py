@@ -5,7 +5,7 @@ import json
 import pytest
 
 from keepsake.core.check import check
-from keepsake.core.classify import classify, suspected_orphan_thumbnails
+from keepsake.core.classify import classify
 from keepsake.core.index import build_index
 from keepsake.storage.base import MediaWriteRefused, ReadOnlyBucket, is_writable_key
 from keepsake.storage.local import LocalDirBucket
@@ -52,14 +52,21 @@ def test_same_stem_different_extensions_coexist(bucket):
 
 
 def test_root_index_is_reserved_but_nested_index_is_a_sidecar(bucket):
+    """A nested index.json is an ordinary sidecar, never the reserved key.
+
+    It can only ever be an orphan one: it claims a media key of `index`, and
+    SPEC's extension rule means a file named `index` cannot be media.
+    """
     bucket.seed("index.json", b"{}")
-    bucket.seed("media/index", b"a media file literally named index")
+    bucket.seed("media/index", b"a file literally named index")
     bucket.seed("media/index.json", sidecar_bytes("index"))
 
     result = classify(bucket.list())
 
     assert result.index_present is True
-    assert result.media == {"media/index": "media/index.json"}
+    assert result.media == {}
+    assert result.orphan_sidecars == ["media/index.json"]
+    assert result.ignored == ["media/index"]
 
 
 def test_media_without_sidecar_is_unindexed_not_hidden(bucket):
@@ -91,17 +98,61 @@ def test_standalone_image_is_media_when_no_sidecar_claims_it(bucket):
     assert result.thumbnails == {}
 
 
-def test_thumbnail_of_unsidecared_media_is_surfaced_as_a_gap(bucket):
-    """SPEC only recognises thumbnails for media that already has a sidecar."""
+def test_thumbnail_is_recognised_before_its_media_has_a_sidecar(bucket):
+    """SPEC: classification describes what a key is, not whether it is complete.
+
+    A bucket freshly filled by an upload tool must not count derived files as
+    library items, so the thumbnail resolves before anything is adopted.
+    """
     bucket.seed("clip.mp4", b"video")
     bucket.seed("clip.mp4.jpg", b"thumb")
 
     result = classify(bucket.list())
 
-    assert result.thumbnails == {}
-    assert result.unindexed == ["clip.mp4", "clip.mp4.jpg"]
-    assert suspected_orphan_thumbnails(result) == {"clip.mp4": "clip.mp4.jpg"}
-    assert "unrecognised-thumbnail" in {f.code for f in check(result, bucket)}
+    assert result.thumbnails == {"clip.mp4": "clip.mp4.jpg"}
+    assert result.unindexed == ["clip.mp4"]
+
+
+def test_thumbnail_of_an_image_doubles_the_extension(bucket):
+    bucket.seed("img3.jpg", b"photo")
+    bucket.seed("img3.jpg.jpg", b"thumb")
+
+    result = classify(bucket.list())
+
+    assert result.thumbnails == {"img3.jpg": "img3.jpg.jpg"}
+    assert result.unindexed == ["img3.jpg"]
+
+
+def test_dotfiles_are_not_media(bucket):
+    """B2 writes .bzEmpty into every folder made in its web UI."""
+    bucket.seed("2026/05/.bzEmpty", b"")
+    bucket.seed("2026/05/clip.mp4", b"video")
+
+    result = classify(bucket.list())
+
+    assert result.unindexed == ["2026/05/clip.mp4"]
+    assert result.ignored == ["2026/05/.bzEmpty"]
+    assert "not-media" in {f.code for f in check(result, bucket)}
+
+
+def test_extensionless_keys_are_not_catalogued(bucket):
+    bucket.seed("README", b"notes")
+
+    result = classify(bucket.list())
+
+    assert result.unindexed == []
+    assert result.ignored == ["README"]
+
+
+def test_keys_differing_only_in_case_are_an_error():
+    """LocalDirBucket cannot hold both on macOS, which is the whole point."""
+    from keepsake.storage.base import Obj
+
+    result = classify([Obj(key="IMG.mov", size=1), Obj(key="img.mov", size=1)])
+
+    assert result.case_collisions == {"img.mov": ["IMG.mov", "img.mov"]}
+    findings = {f.code: f for f in check(result)}
+    assert findings["case-collision"].level == "error"
 
 
 def test_index_inlines_sidecars_sorted_by_path(bucket):

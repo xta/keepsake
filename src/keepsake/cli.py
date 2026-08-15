@@ -208,6 +208,13 @@ def sync(
     details: Annotated[
         bool, typer.Option("--details", "-d", help="Show full sidecar contents in the plan")
     ] = False,
+    adopt_all: Annotated[
+        bool,
+        typer.Option(
+            "--adopt-all",
+            help="Also adopt files whose extension is not recognised media",
+        ),
+    ] = False,
 ) -> None:
     """Make the selected libraries match the convention.
 
@@ -215,18 +222,22 @@ def sync(
     index.json from every sidecar. Idempotent: running it again does nothing.
     """
     for prof, bucket in _open(profile, writable=apply):
-        _sync_one(prof, bucket, prefix, apply, details)
+        _sync_one(prof, bucket, prefix, apply, details, adopt_all)
 
 
-def _sync_one(prof, bucket, prefix, apply, details) -> None:
+def _sync_one(prof, bucket, prefix, apply, details, adopt_all=False) -> None:
     result = classify(bucket.list(prefix))
-    stubs = adopt_mod.plan(result, new_id=lambda: str(ULID()))
+    stubs = adopt_mod.plan(
+        result, new_id=lambda: str(ULID()), include_unrecognised=adopt_all
+    )
 
     if apply:
         _header(prof)
         if stubs:
-            written = adopt_mod.apply(bucket, stubs)
+            written, failures = adopt_mod.apply(bucket, stubs)
             console.print(f"wrote [green]{_plural(written, 'sidecar')}[/]")
+            for key, reason in failures:
+                err.print(f"[yellow]skipped[/] {key}: {reason}")
             # Sidecars are the source of truth, so the catalog is built from
             # the bucket as it stands after they land.
             result = classify(bucket.list(prefix))

@@ -1,7 +1,10 @@
 """The classification pass from SPEC.md "Reindexing".
 
-Order is load-bearing. Sidecars establish the known media set first; only then
-can a `.jpg` be told apart from standalone media that happens to be an image.
+Each step reads the set of keys present, not the results of the step before it.
+Classification describes what each key *is*, not whether its item is complete:
+a thumbnail is recognised as a thumbnail before its media has a sidecar, so a
+bucket freshly filled by an upload tool does not count derived files as library
+items. The media itself stays unindexed until its sidecar is written.
 """
 
 from __future__ import annotations
@@ -10,7 +13,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Iterable
 
-from keepsake.storage.base import INDEX_KEY, Obj, split_companion
+from keepsake.storage.base import INDEX_KEY, Obj, has_extension, split_companion
 
 
 @dataclass
@@ -28,6 +31,12 @@ class Classification:
     #: media key -> the competing companion keys claiming it. SPEC.md: report
     #: the ambiguity rather than choosing one.
     ambiguous: dict[str, list[str]] = field(default_factory=dict)
+    #: keys that are not media by SPEC.md's extension rule. Not part of the
+    #: library and never catalogued, but reported so they stay visible.
+    ignored: list[str] = field(default_factory=list)
+    #: lowercased key -> the keys colliding on it. SPEC.md forbids a library
+    #: from holding two keys that differ only in case.
+    case_collisions: dict[str, list[str]] = field(default_factory=dict)
     index_present: bool = False
 
     @property
@@ -47,11 +56,24 @@ def classify(objects: Iterable[Obj]) -> Classification:
             continue
         result.objects[obj.key] = obj
 
-    keys = set(result.objects)
+    # SPEC.md: "A key that is not media by the rule above is not part of the
+    # library." Filtering here rather than at the end keeps every later step
+    # from having to restate the rule.
+    keys = {key for key in result.objects if has_extension(key)}
+    result.ignored = sorted(set(result.objects) - keys)
+
+    # SPEC.md: a library must not contain two keys differing only in case.
+    # Object storage allows it; no filesystem the archive is likely to be
+    # copied to can represent both, so report rather than resolve.
+    lowered: dict[str, list[str]] = defaultdict(list)
+    for key in keys:
+        lowered[key.lower()].append(key)
+    result.case_collisions = {
+        low: sorted(group) for low, group in lowered.items() if len(group) > 1
+    }
 
     # 1. Sidecars. Every remaining key whose suffix is `.json` (in any case) is
     #    a sidecar; stripping the suffix yields the media key it describes.
-    #    This establishes the known media set.
     claimed: dict[str, list[str]] = defaultdict(list)
     sidecar_keys: set[str] = set()
     for key in keys:
@@ -71,14 +93,15 @@ def classify(objects: Iterable[Obj]) -> Classification:
             result.media[media] = sidecars[0]
     result.orphan_sidecars.sort()
 
-    # 2. Thumbnails. A key formed by appending an image extension to a key in
-    #    the known media set is that file's thumbnail.
+    # 2. Thumbnails. A key formed by appending an image extension to another
+    #    key present in the bucket is that key's thumbnail -- whether or not
+    #    the media has a sidecar yet.
     remaining = present - set(result.media)
     thumbs: dict[str, list[str]] = defaultdict(list)
     thumb_keys: set[str] = set()
     for key in remaining:
         split = split_companion(key)
-        if split and split[1] == "thumbnail" and split[0] in result.media:
+        if split and split[1] == "thumbnail" and split[0] in present:
             thumbs[split[0]].append(key)
             thumb_keys.add(key)
 
@@ -91,20 +114,3 @@ def classify(objects: Iterable[Obj]) -> Classification:
     # 3. Everything left is media with no sidecar, and is unindexed.
     result.unindexed = sorted(remaining - thumb_keys)
     return result
-
-
-def suspected_orphan_thumbnails(result: Classification) -> dict[str, str]:
-    """Unindexed keys that look like thumbnails of other unindexed media.
-
-    SPEC.md only recognises a thumbnail when its media file has a sidecar, so
-    in a bucket with no sidecars yet, `clip.mp4.jpg` classifies as standalone
-    media. That is the spec as written; this helper exists so `check` can say
-    so out loud instead of silently miscounting the library.
-    """
-    unindexed = set(result.unindexed)
-    suspects: dict[str, str] = {}
-    for key in result.unindexed:
-        split = split_companion(key)
-        if split and split[1] == "thumbnail" and split[0] in unindexed:
-            suspects[split[0]] = key
-    return suspects

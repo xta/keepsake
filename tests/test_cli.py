@@ -81,7 +81,8 @@ class TestSync:
     def test_plan_writes_nothing(self, library):
         result = runner.invoke(cli.app, ["sync"])
         assert result.exit_code == 0, result.output
-        assert "2 sidecars to write" in result.stdout
+        # notes.txt is not recognised media, so it is not adopted by default.
+        assert "1 sidecar to write" in result.stdout
         assert "IMG_4471.mov.json" in result.stdout
         assert "index.json to create" in result.stdout
         assert "nothing written" in result.stdout
@@ -99,13 +100,14 @@ class TestSync:
 
         assert library.head("media/2025/IMG_4471.mov.json") is not None
         catalog = json.loads(library.get("index.json"))
-        # piano.mp4 already had a sidecar; the other two get stubs.
-        assert catalog["count"] == 3
+        # piano.mp4 already had a sidecar; IMG_4471.mov gets a stub. notes.txt
+        # is not recognised media and stays out of the library.
+        assert catalog["count"] == 2
         assert [item["path"] for item in catalog["items"]] == [
             "media/2025/IMG_4471.mov",
             "media/2026/piano.mp4",
-            "notes.txt",
         ]
+        assert library.head("notes.txt.json") is None
 
     def test_is_idempotent(self, library):
         runner.invoke(cli.app, ["sync", "--apply"])
@@ -128,13 +130,21 @@ class TestSync:
 
         assert result.exit_code == 0, result.output
         assert library.head("media/2026/new-clip.mp4.json") is not None
-        assert json.loads(library.get("index.json"))["count"] == 4
+        assert json.loads(library.get("index.json"))["count"] == 3
 
-    def test_status_is_clean_after_sync(self, library):
+    def test_status_after_sync_reports_only_the_stray(self, library):
+        """Every media file is adopted; notes.txt is deliberately left out."""
         runner.invoke(cli.app, ["sync", "--apply"])
         result = runner.invoke(cli.app, ["status"])
         assert result.exit_code == 0
-        assert "media-no-sidecar" not in result.stdout
+        assert "non-media-present" in result.stdout
+        assert library.head("media/2025/IMG_4471.mov.json") is not None
+        assert library.head("notes.txt.json") is None
+
+    def test_adopt_all_takes_the_stray_too(self, library):
+        runner.invoke(cli.app, ["sync", "--apply", "--adopt-all"])
+        assert library.head("notes.txt.json") is not None
+        assert json.loads(library.get("index.json"))["count"] == 3
 
 
 def test_no_profiles_is_a_clean_error(monkeypatch):

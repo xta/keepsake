@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from keepsake.core.classify import Classification, suspected_orphan_thumbnails
+from keepsake.core.classify import Classification
 from keepsake.core.survey import MEDIA_EXTS, extension_of
 from keepsake.models import REQUIRED_SIDECAR_FIELDS, SCHEMA_VERSION
 from keepsake.storage.base import SIDECAR_SUFFIX, Bucket
@@ -66,34 +66,47 @@ def check(
             )
         )
 
-    # Known gap in SPEC.md's reindex algorithm: thumbnails are only recognised
-    # for media that already has a sidecar.
-    suspects = suspected_orphan_thumbnails(result)
-    if suspects:
+    # SPEC: "A library must not contain two keys differing only in case."
+    # Companions competing on suffix case are already reported as ambiguous, so
+    # exclude those groups rather than saying the same thing twice.
+    already_reported = {key for group in result.ambiguous.values() for key in group}
+    for _, group in sorted(result.case_collisions.items()):
+        if set(group) <= already_reported:
+            continue
+        findings.append(
+            Finding(
+                "error",
+                "case-collision",
+                f"{len(group)} keys differ only in case ({', '.join(group)}). "
+                "Object storage keeps both, but copying this library to macOS or "
+                "Windows collapses one onto the other. Rename one.",
+                group[0],
+            )
+        )
+
+    # SPEC: a key that is not media by the extension rule is not part of the
+    # library. Report it so it stays visible; do not catalogue it.
+    if result.ignored:
         findings.append(
             Finding(
                 "warn",
-                "unrecognised-thumbnail",
-                f"{len(suspects)} file(s) look like thumbnails but their media has "
-                "no sidecar, so the spec classifies them as standalone media. "
-                "They will be counted as library items until sidecars exist.",
+                "not-media",
+                f"{len(result.ignored)} object(s) carry no file extension, or are "
+                "dotfiles, so they are not part of the library and are not "
+                "catalogued. Rename one with its correct extension to adopt it.",
             )
         )
 
     # SPEC: "Not a shared bucket."
-    strays = [
-        key
-        for key in result.unindexed
-        if extension_of(key) not in MEDIA_EXTS and key not in suspects.values()
-    ]
+    strays = [key for key in result.unindexed if extension_of(key) not in MEDIA_EXTS]
     if strays:
         findings.append(
             Finding(
                 "warn",
                 "non-media-present",
-                f"{len(strays)} object(s) do not look like media but will be "
-                "catalogued as untitled media. A keepsake bucket should hold a "
-                "keepsake library and nothing else.",
+                f"{len(strays)} object(s) do not look like media and will not be "
+                "adopted. A keepsake bucket should hold a keepsake library and "
+                "nothing else; adopt them anyway with `sync --adopt-all`.",
             )
         )
 

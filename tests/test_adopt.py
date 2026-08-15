@@ -81,7 +81,7 @@ def test_apply_writes_sidecars_and_the_library_becomes_indexed(bucket, ids):
     bucket.seed("2026/05/IMG_0002.MOV", b"x" * 100)
     stubs = adopt_mod.plan(classify(bucket.list()), new_id=ids)
 
-    assert adopt_mod.apply(bucket, stubs) == 1
+    assert adopt_mod.apply(bucket, stubs) == (1, [])
 
     after = classify(bucket.list())
     assert after.media == {"2026/05/IMG_0002.MOV": "2026/05/IMG_0002.MOV.json"}

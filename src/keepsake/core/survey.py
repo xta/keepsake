@@ -12,6 +12,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 
 from keepsake.core.classify import Classification
+from keepsake.storage.base import has_extension
 
 VIDEO_EXTS = {
     ".mov", ".mp4", ".m4v", ".avi", ".mkv", ".mpg", ".mpeg", ".wmv",
@@ -24,10 +25,14 @@ MEDIA_EXTS = VIDEO_EXTS | IMAGE_EXTS | AUDIO_EXTS
 
 
 def extension_of(key: str) -> str:
-    base = key.rsplit("/", 1)[-1]
-    if "." not in base:
+    """The key's extension, or "" when SPEC.md says it has none.
+
+    Defers to `has_extension` so a dotfile like `.bzEmpty` reports no extension
+    rather than an extension of `.bzempty`.
+    """
+    if not has_extension(key):
         return ""
-    return "." + base.rsplit(".", 1)[-1].lower()
+    return "." + key.rsplit("/", 1)[-1].rsplit(".", 1)[-1].lower()
 
 
 @dataclass

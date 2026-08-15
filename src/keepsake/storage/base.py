@@ -51,6 +51,18 @@ class ReadOnlyBucket(Exception):
     """Raised when a write is attempted on a bucket opened read-only."""
 
 
+def has_extension(key: str) -> bool:
+    """True when `key` can name media, by SPEC.md's extension rule.
+
+    SPEC.md: "A key is media only when its final path segment does not begin
+    with `.` and contains a `.`." The leading-dot clause is load-bearing --
+    it keeps B2's own `.bzEmpty` folder placeholders and macOS `.DS_Store`
+    out of the library without maintaining a list of junk filenames.
+    """
+    base = key.rsplit("/", 1)[-1]
+    return not base.startswith(".") and "." in base
+
+
 def split_companion(key: str) -> tuple[str, CompanionKind] | None:
     """Split a companion key into the media key it describes and its kind.
 
@@ -72,7 +84,7 @@ def split_companion(key: str) -> tuple[str, CompanionKind] | None:
             # `piano.mp4.jpg` -> `piano.mp4`, which still carries an extension,
             # so it plausibly names a media file. `vacation.jpg` -> `vacation`,
             # which does not, so that key is standalone media.
-            if media and "." in media.rsplit("/", 1)[-1]:
+            if media and has_extension(media):
                 return media, "thumbnail"
             return None
     return None
