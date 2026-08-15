@@ -6,15 +6,6 @@ A CLI for managing [keepsake](SPEC.md) libraries in object storage.
 implementation-agnostic, and it never mentions this tool. This repo also holds
 one implementation of it, in Python. Tested against Backblaze B2.
 
-## Status: phase 1, read-only
-
-The tool does not write anything to a bucket yet. Buckets are opened read-only
-and the storage layer refuses writes regardless of what a command asks for.
-
-Phase 1 answers "what is actually in these buckets, and what would adopting the
-convention involve" — which is the useful question when your buckets are still
-just folders full of `IMG_4471.mov`.
-
 ## Safety model
 
 > The write surface is exactly three things: the root `index.json`,
@@ -23,15 +14,17 @@ just folders full of `IMG_4471.mov`.
 
 Enforced at one chokepoint in `storage/base.py`: `put()` and `delete()` reject
 any key that isn't a companion, unless the caller passes `allow_media=True`,
-which only an explicit user-invoked delete command will ever set. No other code
-path can reach a media file.
+which no command sets. No other code path can reach a media file.
 
 Back that up at the credential layer — see key capabilities below. Two
 independent layers, and the one B2 enforces is the one that actually matters.
 
-This means the tool deliberately implements a **subset** of SPEC.md's
+This means the tool implements a deliberate **subset** of SPEC.md's
 "Delete order": steps 1–2 (sidecar, thumbnail) yes, step 3 (the media file)
-only on explicit invocation. That divergence is intentional.
+never.
+
+Commands that write take `--apply`. Without it they print exactly what they
+would do and touch nothing.
 
 ## Setup
 
@@ -45,21 +38,15 @@ uv run keepsake profiles --verify
 
 ### Backblaze B2 keys
 
-Create **one application key per bucket**, restricted to that bucket:
+Create **one application key per bucket**, restricted to that bucket, with
+capabilities `listFiles`, `readFiles`, `writeFiles`.
 
-| Phase | Capabilities |
-|---|---|
-| Now (read-only) | `listFiles`, `readFiles` |
-| Phase 2 (writes) | `listFiles`, `readFiles`, `writeFiles` |
-| Ever | **never** `deleteFiles` |
+**Never grant `deleteFiles`.** It is not needed: replacing a sidecar or
+regenerating a thumbnail is an overwrite, not a delete. Withholding it makes
+media deletion impossible at the credential layer, not merely unimplemented.
 
-B2 application keys are immutable — you cannot add a capability to an existing
-key, so moving to phase 2 means issuing new keys and swapping the values in
-`.env`. That is a feature: read-only keys today mean the tool provably cannot
-alter your originals while you are still testing it.
-
-`deleteFiles` is never needed. Replacing a sidecar or regenerating a thumbnail
-is an overwrite (`writeFiles`), not a delete.
+Keys are immutable, so widening a key's capabilities means issuing a new one
+and swapping the values in `.env`.
 
 ### Profiles
 
@@ -83,40 +70,61 @@ profile if there is exactly one.
 
 ## Commands
 
+Four verbs, matching the four things you actually want to do:
+
+| | |
+|---|---|
+| `keepsake profiles` | Can I reach my buckets? |
+| `keepsake status` | What is in this bucket, and is it healthy? |
+| `keepsake sync` | Make the bucket match the convention. |
+| `keepsake version` | |
+
 ```sh
 uv run keepsake profiles --verify        # list profiles, reach each bucket
-uv run keepsake ls -p family             # survey: extensions, prefixes, sizes
-uv run keepsake ls -p family --files     # every key
-uv run keepsake check -p family          # SPEC failure modes + B2 lifecycle
-uv run keepsake reindex -p family        # build index.json, print to stdout
-uv run keepsake reindex -p family -o out.json   # ...or to a local file
+uv run keepsake status -p family         # survey + findings
+uv run keepsake status -p family --files # every key
+uv run keepsake sync -p family           # show every change it would make
+uv run keepsake sync -p family --details # ...including full sidecar contents
+uv run keepsake sync -p family --apply   # write them
 ```
 
-`reindex` never writes to the bucket in phase 1. `-o` writes a local file only.
+`sync` writes a stub sidecar for any media lacking one, then rebuilds
+`index.json` from every sidecar — in that order, because sidecars are the
+source of truth and the catalog is derived from them. It is idempotent:
+running it again writes nothing, and it skips rewriting an unchanged
+`index.json` rather than creating a pointless new object version.
+
+Adding videos to a bucket later, by any means, is followed by one command:
+
+```sh
+uv run keepsake sync -p family --apply
+```
+
+### What `sync` records in a new sidecar
+
+Only what the bucket already knows: `schema`, a fresh ULID `id`, `file`,
+`uploaded_at` (the object's own timestamp), `size_bytes`, and `media_type`.
+
+`title` and `recorded_at` are left absent rather than derived from the filename
+or path. A path like `2026/05/IMG_0002.MOV` implies a year and a month, but
+SPEC.md requires `YYYY-MM-DD`, and inventing a day would put a fact in the
+archive that nobody established. An absent field is easy to fill in later; a
+wrong one looks authoritative forever.
 
 ## Backblaze notes
 
-Both of these live in `storage/b2.py`:
+Both live in `storage/b2.py`:
 
 - **Checksums.** Since boto3 ~1.36 the AWS SDKs send
   `x-amz-sdk-checksum-algorithm` by default and B2 rejects it. Clients are
-  built with `request_checksum_calculation="when_required"`. Note that
-  s3transfer does not reliably honour this on the managed upload path
-  ([boto/s3transfer#327](https://github.com/boto/s3transfer/issues/327)) —
-  verify before phase 3 builds on `upload_file`.
+  built with `request_checksum_calculation="when_required"`. s3transfer does
+  not reliably honour this on the managed upload path
+  ([boto/s3transfer#327](https://github.com/boto/s3transfer/issues/327)); the
+  small `put_object` writes used here are unaffected.
 - **Versioning.** B2 retains every file version unless a lifecycle rule says
   otherwise, and sidecars are rewritten on every metadata edit. Set each
   bucket's Lifecycle Settings to *"Keep only the last version of the file"*.
-  `keepsake check` reports this.
-
-## Roadmap
-
-- **Phase 2** — writes: real `reindex`, `adopt` (stub sidecars from object
-  metadata), `edit` with re-read-and-merge.
-- **Phase 3** — `ffprobe` for `duration_s`, thumbnail generation, `sha256`.
-  Requires `ffmpeg`.
-- **Phase 4** — TUI for metadata entry, which is the interface this whole tool
-  exists to support.
+  `keepsake status` reports this.
 
 ## Development
 

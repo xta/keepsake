@@ -42,6 +42,19 @@ def check(
             )
         )
 
+    # SPEC: companions differing only in suffix case leave the library
+    # ambiguous. Report rather than choosing one.
+    for media, competing in sorted(result.ambiguous.items()):
+        findings.append(
+            Finding(
+                "error",
+                "ambiguous-companion",
+                f"{media} is claimed by {len(competing)} competing companions "
+                f"({', '.join(competing)}). Remove all but one.",
+                media,
+            )
+        )
+
     # SPEC: "Media, no sidecar" -- expected, surfaced not hidden.
     if result.unindexed:
         findings.append(
@@ -49,7 +62,7 @@ def check(
                 "info",
                 "media-no-sidecar",
                 f"{len(result.unindexed)} media file(s) have no sidecar and are "
-                "unindexed. Recoverable with `keepsake adopt` (phase 2).",
+                "unindexed. Run `keepsake sync` to generate stub sidecars.",
             )
         )
 
@@ -90,7 +103,7 @@ def check(
                 "info",
                 "no-index",
                 "no index.json at the bucket root. Generate one with "
-                "`keepsake reindex` (phase 2).",
+                "`keepsake sync --apply`.",
             )
         )
 

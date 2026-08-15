@@ -7,9 +7,9 @@ Every B2-specific workaround lives in this file. Two matter:
    rejects them with "Unsupported header ... received for this API call".
    We force both checksum knobs to "when_required".
 
-   Known wrinkle for phase 2: s3transfer does not reliably honour
-   `when_required` on the managed upload path (boto/s3transfer#327). Verify
-   against a real bucket before building on `upload_file`.
+   Caveat: s3transfer does not reliably honour `when_required` on the managed
+   upload path (boto/s3transfer#327). Verify against a real bucket before
+   building on `upload_file`. Small `put_object` writes are unaffected.
 
 2. Region. B2 endpoints look like `s3.us-east-001.backblazeb2.com`, and SigV4
    needs `us-east-001` as the region. We derive it from the hostname rather

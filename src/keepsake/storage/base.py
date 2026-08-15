@@ -1,7 +1,7 @@
 """Storage abstraction and the media-write guard.
 
 Every bucket backend implements `Bucket`. The point of the abstraction is not
-provider portability (we only target Backblaze B2 today) but testability: the
+provider portability (only Backblaze B2 is targeted today) but testability: the
 whole test suite runs against `LocalDirBucket` with no network and no creds.
 
 Safety rule enforced here, at one chokepoint:
@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Iterator, Protocol, runtime_checkable
+from typing import Iterator, Literal, Protocol, runtime_checkable
 
 # The one reserved key (SPEC.md "Reserved key"). A nested index.json is an
 # ordinary sidecar, not this.
@@ -29,6 +29,8 @@ SIDECAR_SUFFIX = ".json"
 # Exactly the extensions SPEC.md names. Deliberately excludes ".jpeg" -- adding
 # it here would be a silent divergence from our own spec.
 THUMB_EXTS = (".jpg", ".png", ".webp")
+
+CompanionKind = Literal["sidecar", "thumbnail"]
 
 
 @dataclass(frozen=True)
@@ -49,32 +51,44 @@ class ReadOnlyBucket(Exception):
     """Raised when a write is attempted on a bucket opened read-only."""
 
 
+def split_companion(key: str) -> tuple[str, CompanionKind] | None:
+    """Split a companion key into the media key it describes and its kind.
+
+    SPEC.md: companion suffixes match case-insensitively, but the media portion
+    of the key matches exactly, because object storage keys are case-sensitive
+    and `clip.mov` and `clip.MOV` are genuinely different files.
+
+    Returns None for keys that are not companions.
+    """
+    lowered = key.lower()
+
+    if lowered.endswith(SIDECAR_SUFFIX):
+        media = key[: -len(SIDECAR_SUFFIX)]
+        return (media, "sidecar") if media else None
+
+    for ext in THUMB_EXTS:
+        if lowered.endswith(ext):
+            media = key[: -len(ext)]
+            # `piano.mp4.jpg` -> `piano.mp4`, which still carries an extension,
+            # so it plausibly names a media file. `vacation.jpg` -> `vacation`,
+            # which does not, so that key is standalone media.
+            if media and "." in media.rsplit("/", 1)[-1]:
+                return media, "thumbnail"
+            return None
+    return None
+
+
 def is_writable_key(key: str) -> bool:
-    """True if `key` is a companion this tool is allowed to create or replace.
+    """True if `key` is something this tool is allowed to create or replace.
 
     Conservative by design: it recognises the *shape* of a companion key
-    without consulting the bucket. A thumbnail must look like
-    `<name>.<mediaext>.<imgext>` -- stripping the image extension has to leave
-    something that still carries an extension of its own. That keeps a
-    standalone `vacation.jpg` (media) from being mistaken for a companion.
-
-    Phase 2 note: once writes land, callers that already hold a Classification
-    should prefer checking membership in its `thumbnails` map, which is exact.
-    This function is the backstop for callers that don't.
+    without consulting the bucket. Callers holding a Classification should
+    prefer its exact `media`/`thumbnails` maps; this is the backstop for
+    callers that do not.
     """
     if key == INDEX_KEY:
         return True
-    if key.endswith(SIDECAR_SUFFIX):
-        # `x.mp4.json` describes `x.mp4`; a bare `.json` at root would be the
-        # reserved key, already handled above.
-        return len(key) > len(SIDECAR_SUFFIX)
-    for ext in THUMB_EXTS:
-        if key.endswith(ext):
-            stem = key[: -len(ext)]
-            # `piano.mp4.jpg` -> stem `piano.mp4`, which has an extension. Good.
-            # `vacation.jpg`  -> stem `vacation`, which does not. Treat as media.
-            return "." in stem.rsplit("/", 1)[-1]
-    return False
+    return split_companion(key) is not None
 
 
 @runtime_checkable
@@ -115,8 +129,7 @@ class GuardedBucket:
     def _guard(self, key: str, allow_media: bool) -> None:
         if self.readonly:
             raise ReadOnlyBucket(
-                f"bucket is open read-only; refusing to write {key!r}. "
-                "Phase 1 of this tool never writes."
+                f"bucket is open read-only; refusing to write {key!r}."
             )
         if not allow_media and not is_writable_key(key):
             raise MediaWriteRefused(

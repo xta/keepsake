@@ -1,7 +1,7 @@
 """Profile discovery.
 
-Phase 1 reads profiles from the environment only, so `.env` *is* the profile
-registry -- adding a fifth bucket is three lines and no code:
+Profiles come from the environment, so `.env` *is* the profile registry --
+adding a bucket is three lines and no code:
 
     KEEPSAKE_ENDPOINT=https://s3.us-east-001.backblazeb2.com
 
@@ -16,8 +16,8 @@ The `KEEPSAKE_` prefix is load-bearing: discovery scans the whole process
 environment, not just `.env`, so an unprefixed `<NAME>_BUCKET` would collide
 with unrelated variables already in the shell.
 
-`load_profiles` is the single resolution point. Phase 2 adds a config file plus
-Keychain lookup behind it without any caller changing.
+`load_profiles` is the single resolution point, so another credential source
+can slot in behind it without any caller changing.
 """
 
 from __future__ import annotations

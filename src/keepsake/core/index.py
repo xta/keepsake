@@ -1,6 +1,7 @@
 """Build the derived catalog described in SPEC.md "index.json".
 
-Phase 1 builds it in memory only. Nothing here writes to a bucket.
+The index is disposable: every field is derived from the bucket's contents, so
+deleting it and rebuilding loses nothing.
 """
 
 from __future__ import annotations
@@ -10,7 +11,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from keepsake.core.classify import Classification
-from keepsake.storage.base import Bucket
+from keepsake.storage.base import INDEX_KEY, Bucket
 
 
 def now_rfc3339() -> str:
@@ -50,3 +51,10 @@ def build_index(
 
 def serialize(index: dict[str, Any]) -> bytes:
     return json.dumps(index, indent=2, ensure_ascii=False).encode("utf-8")
+
+
+def write(bucket: Bucket, index: dict[str, Any]) -> int:
+    """Write the catalog to the bucket root. Returns the byte count."""
+    payload = serialize(index)
+    bucket.put(INDEX_KEY, payload, content_type="application/json")
+    return len(payload)

@@ -46,6 +46,12 @@ This makes the mapping total and unambiguous. `vacation.mp4` and `vacation.mov` 
 
 **Naming is authoritative.** A key formed by appending a known suffix to an existing media key is that file's companion, not standalone media.
 
+**Suffix case is insignificant.** Companion suffixes match case-insensitively. `IMG_0002.MOV.JSON` and `IMG_0002.MOV.json` are both sidecars for `IMG_0002.MOV`. Cameras and phones vary in the case they emit, and a library should not fracture over it.
+
+The media portion of the key still matches exactly. Object storage keys are case-sensitive, so `clip.mov` and `clip.MOV` are different files, and neither one's companions belong to the other.
+
+Writers emit lowercase suffixes. If two companions of the same kind differ only in suffix case, the library is ambiguous: report it rather than choosing one.
+
 **Paths are arbitrary.** There is no required directory structure. The `media/` prefix and date directories above are conventional, not required. Media may sit at the bucket root or anywhere else. An existing bucket of videos becomes a keepsake bucket by adding sidecars, with no reorganization.
 
 ### Reserved key

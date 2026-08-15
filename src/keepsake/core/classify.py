@@ -6,10 +6,11 @@ can a `.jpg` be told apart from standalone media that happens to be an image.
 
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Iterable
 
-from keepsake.storage.base import INDEX_KEY, SIDECAR_SUFFIX, THUMB_EXTS, Obj
+from keepsake.storage.base import INDEX_KEY, Obj, split_companion
 
 
 @dataclass
@@ -24,6 +25,9 @@ class Classification:
     #: sidecar whose media key is absent. Should be unreachable under the
     #: documented write order; report, do not index.
     orphan_sidecars: list[str] = field(default_factory=list)
+    #: media key -> the competing companion keys claiming it. SPEC.md: report
+    #: the ambiguity rather than choosing one.
+    ambiguous: dict[str, list[str]] = field(default_factory=dict)
     index_present: bool = False
 
     @property
@@ -45,29 +49,44 @@ def classify(objects: Iterable[Obj]) -> Classification:
 
     keys = set(result.objects)
 
-    # 1. Sidecars. Every remaining `.json` key is a sidecar; stripping the
-    #    suffix yields the media key it describes. This is the known media set.
-    sidecars = {k for k in keys if k.endswith(SIDECAR_SUFFIX)}
-    claimed = {k[: -len(SIDECAR_SUFFIX)]: k for k in sidecars}
+    # 1. Sidecars. Every remaining key whose suffix is `.json` (in any case) is
+    #    a sidecar; stripping the suffix yields the media key it describes.
+    #    This establishes the known media set.
+    claimed: dict[str, list[str]] = defaultdict(list)
+    sidecar_keys: set[str] = set()
+    for key in keys:
+        split = split_companion(key)
+        if split and split[1] == "sidecar":
+            claimed[split[0]].append(key)
+            sidecar_keys.add(key)
 
-    non_sidecars = keys - sidecars
-    result.orphan_sidecars = sorted(
-        sidecar for media, sidecar in claimed.items() if media not in non_sidecars
-    )
-    result.media = {
-        media: sidecar for media, sidecar in claimed.items() if media in non_sidecars
-    }
+    present = keys - sidecar_keys
+
+    for media, sidecars in claimed.items():
+        if media not in present:
+            result.orphan_sidecars.extend(sidecars)
+        elif len(sidecars) > 1:
+            result.ambiguous[media] = sorted(sidecars)
+        else:
+            result.media[media] = sidecars[0]
+    result.orphan_sidecars.sort()
 
     # 2. Thumbnails. A key formed by appending an image extension to a key in
     #    the known media set is that file's thumbnail.
-    remaining = non_sidecars - set(result.media)
+    remaining = present - set(result.media)
+    thumbs: dict[str, list[str]] = defaultdict(list)
     thumb_keys: set[str] = set()
     for key in remaining:
-        for ext in THUMB_EXTS:
-            if key.endswith(ext) and key[: -len(ext)] in result.media:
-                result.thumbnails[key[: -len(ext)]] = key
-                thumb_keys.add(key)
-                break
+        split = split_companion(key)
+        if split and split[1] == "thumbnail" and split[0] in result.media:
+            thumbs[split[0]].append(key)
+            thumb_keys.add(key)
+
+    for media, candidates in thumbs.items():
+        if len(candidates) > 1:
+            result.ambiguous.setdefault(media, []).extend(sorted(candidates))
+        else:
+            result.thumbnails[media] = candidates[0]
 
     # 3. Everything left is media with no sidecar, and is unindexed.
     result.unindexed = sorted(remaining - thumb_keys)
@@ -85,8 +104,7 @@ def suspected_orphan_thumbnails(result: Classification) -> dict[str, str]:
     unindexed = set(result.unindexed)
     suspects: dict[str, str] = {}
     for key in result.unindexed:
-        for ext in THUMB_EXTS:
-            if key.endswith(ext) and key[: -len(ext)] in unindexed:
-                suspects[key[: -len(ext)]] = key
-                break
+        split = split_companion(key)
+        if split and split[1] == "thumbnail" and split[0] in unindexed:
+            suspects[split[0]] = key
     return suspects
