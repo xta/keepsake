@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from keepsake.config import ConfigError, load_profiles, resolve_profile
+from keepsake.config import ConfigError, load_profiles, resolve_profiles
 
 ENV = {
     "KEEPSAKE_ENDPOINT": "https://s3.us-east-001.backblazeb2.com",
@@ -52,20 +52,26 @@ def test_underscores_are_allowed_in_profile_names():
     assert "old_stuff" in profiles
 
 
-def test_resolve_requires_a_choice_when_several_exist(monkeypatch):
-    monkeypatch.delenv("KEEPSAKE_PROFILE", raising=False)
-    profiles = load_profiles(ENV)
-    with pytest.raises(ConfigError, match="multiple profiles"):
-        resolve_profile(None, profiles)
-    assert resolve_profile("jane", profiles).bucket == "media-jane"
+def test_omitting_a_name_selects_every_profile():
+    chosen = resolve_profiles(None, load_profiles(ENV))
+    assert [p.name for p in chosen] == ["jane", "john"]
 
 
-def test_resolve_defaults_to_the_only_profile(monkeypatch):
-    monkeypatch.delenv("KEEPSAKE_PROFILE", raising=False)
+def test_naming_one_profile_narrows_the_selection():
+    chosen = resolve_profiles("jane", load_profiles(ENV))
+    assert [p.bucket for p in chosen] == ["media-jane"]
+
+
+def test_a_single_profile_library_still_works():
     only = {k: v for k, v in ENV.items() if not k.startswith("KEEPSAKE_JOHN")}
-    assert resolve_profile(None, load_profiles(only)).name == "jane"
+    assert [p.name for p in resolve_profiles(None, load_profiles(only))] == ["jane"]
 
 
 def test_unknown_profile_is_rejected():
     with pytest.raises(ConfigError, match="unknown profile"):
-        resolve_profile("nope", load_profiles(ENV))
+        resolve_profiles("nope", load_profiles(ENV))
+
+
+def test_no_profiles_at_all_is_an_error():
+    with pytest.raises(ConfigError, match="no profiles found"):
+        resolve_profiles(None, {})

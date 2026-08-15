@@ -45,7 +45,7 @@ def library(tmp_path, monkeypatch):
         key_id="k",
         app_key="s",
     )
-    monkeypatch.setattr(cli, "_open", lambda name, writable=False: (profile, bucket))
+    monkeypatch.setattr(cli, "_open", lambda name, writable=False: [(profile, bucket)])
     return bucket
 
 

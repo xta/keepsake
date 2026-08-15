@@ -107,24 +107,23 @@ def load_profiles(env: dict[str, str] | None = None) -> dict[str, Profile]:
     return profiles
 
 
-def resolve_profile(name: str | None, profiles: dict[str, Profile]) -> Profile:
-    """Flag, then KEEPSAKE_PROFILE, then the sole profile if there is only one."""
+def resolve_profiles(name: str | None, profiles: dict[str, Profile]) -> list[Profile]:
+    """One named profile, or every profile when no name is given.
+
+    An archive is usually several buckets -- one per person -- and the common
+    intent is "all of them". Naming one narrows the work; omitting the flag is
+    an instruction, not an ambiguity to complain about.
+    """
     if not profiles:
         raise ConfigError(
             "no profiles found. Create a .env with KEEPSAKE_ENDPOINT and at least "
             "one KEEPSAKE_<NAME>_BUCKET / _ID / _KEY triple. See .env.example."
         )
-    chosen = name or os.environ.get("KEEPSAKE_PROFILE") or ""
-    chosen = chosen.strip().lower()
+    chosen = (name or "").strip().lower()
     if not chosen:
-        if len(profiles) == 1:
-            return next(iter(profiles.values()))
-        raise ConfigError(
-            f"multiple profiles ({', '.join(sorted(profiles))}); "
-            "pick one with --profile or set KEEPSAKE_PROFILE."
-        )
+        return [profiles[key] for key in sorted(profiles)]
     if chosen not in profiles:
         raise ConfigError(
             f"unknown profile {chosen!r}. Known: {', '.join(sorted(profiles))}."
         )
-    return profiles[chosen]
+    return [profiles[chosen]]

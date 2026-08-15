@@ -10,6 +10,8 @@ Bucket calls run in thread workers so the interface never blocks on B2.
 
 from __future__ import annotations
 
+from typing import Sequence
+
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -20,8 +22,15 @@ from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Sta
 from keepsake.core import index as index_mod
 from keepsake.core.classify import classify
 from keepsake.core.survey import human_bytes
-from keepsake.storage.base import Bucket
-from keepsake.tui.library import EDITABLE, Item, load_items, open_externally, save_item, titled
+from keepsake.tui.library import (
+    EDITABLE,
+    Item,
+    Source,
+    load_items,
+    open_externally,
+    save_item,
+    titled,
+)
 
 NO_TITLE = "—"
 
@@ -120,16 +129,27 @@ class KeepsakeApp(App):
         Binding("ctrl+o", "open_media", "Open in player", show=False),
     ]
 
-    def __init__(self, bucket: Bucket, label: str = "", prefix: str = ""):
+    def __init__(self, sources: Sequence[Source], prefix: str = ""):
         super().__init__()
-        self.bucket = bucket
-        self.label = label or getattr(bucket, "name", "bucket")
+        self.sources = list(sources)
         self.prefix = prefix
         self.items: list[Item] = []
         self.untitled_only = False
         self._current: Item | None = None
         self._populating = False
-        self._wrote_anything = False
+        #: Profiles whose sidecars were written, so only their catalogs are
+        #: rebuilt on the way out.
+        self._wrote: set[str] = set()
+
+    @property
+    def multi(self) -> bool:
+        return len(self.sources) > 1
+
+    @property
+    def label(self) -> str:
+        if self.multi:
+            return f"{len(self.sources)} libraries"
+        return self.sources[0][0] if self.sources else "no library"
 
     # ---------------------------------------------------------------- layout
 
@@ -149,6 +169,8 @@ class KeepsakeApp(App):
     def on_mount(self) -> None:
         self.theme = THEME
         table = self.query_one("#items", DataTable)
+        if self.multi:
+            table.add_column("library", key="library")
         table.add_column("media", key="media")
         table.add_column("title", key="title")
         table.add_column("date", key="date")
@@ -160,7 +182,7 @@ class KeepsakeApp(App):
 
     @work(thread=True)
     def _load(self) -> None:
-        items = load_items(self.bucket, self.prefix)
+        items = load_items(self.sources, self.prefix)
         self.call_from_thread(self._populate, items)
 
     def _populate(self, items: list[Item]) -> None:
@@ -176,12 +198,10 @@ class KeepsakeApp(App):
         table = self.query_one("#items", DataTable)
         table.clear()
         for item in self._visible():
-            table.add_row(
-                item.media_key,
-                item.text("title") or NO_TITLE,
-                item.text("recorded_at"),
-                key=item.media_key,
-            )
+            cells = [item.media_key, item.text("title") or NO_TITLE, item.text("recorded_at")]
+            if self.multi:
+                cells.insert(0, item.profile)
+            table.add_row(*cells, key=item.uid)
         self._update_tally()
         if table.row_count:
             table.move_cursor(row=0)
@@ -206,7 +226,7 @@ class KeepsakeApp(App):
     @on(DataTable.RowHighlighted)
     def _row_changed(self, event: DataTable.RowHighlighted) -> None:
         key = event.row_key.value
-        self._current = next((i for i in self.items if i.media_key == key), None)
+        self._current = next((i for i in self.items if i.uid == key), None)
         self._show(self._current)
 
     def _show(self, item: Item | None) -> None:
@@ -215,9 +235,12 @@ class KeepsakeApp(App):
         self._populating = True
         try:
             name = self.query_one("#detail-name", Static)
-            name.update(
-                f"{item.name}  ({human_bytes(item.size)})" if item else NO_TITLE
-            )
+            if item is None:
+                name.update(NO_TITLE)
+            elif self.multi:
+                name.update(f"{item.name}  [dim]{item.profile} · {human_bytes(item.size)}[/]")
+            else:
+                name.update(f"{item.name}  [dim]{human_bytes(item.size)}[/]")
             for field in EDITABLE:
                 widget = self.query_one(f"#field-{field}", Input)
                 widget.value = item.text(field) if item else ""
@@ -238,8 +261,8 @@ class KeepsakeApp(App):
     def _sync_row(self, item: Item) -> None:
         table = self.query_one("#items", DataTable)
         try:
-            table.update_cell(item.media_key, "title", item.text("title") or NO_TITLE)
-            table.update_cell(item.media_key, "date", item.text("recorded_at"))
+            table.update_cell(item.uid, "title", item.text("title") or NO_TITLE)
+            table.update_cell(item.uid, "date", item.text("recorded_at"))
         except Exception:
             # Row is filtered out of the current view; the tally still updates.
             pass
@@ -256,18 +279,18 @@ class KeepsakeApp(App):
     def _save(self) -> None:
         dirty = [item for item in self.items if item.dirty]
         for item in dirty:
-            save_item(self.bucket, item)
+            save_item(item)
+            self._wrote.add(item.profile)
         self.call_from_thread(self._saved, len(dirty))
 
     def _saved(self, count: int) -> None:
-        self._wrote_anything = self._wrote_anything or bool(count)
         self._update_tally()
         self.notify(f"saved {count} sidecar{'' if count == 1 else 's'}")
 
     def action_open_media(self) -> None:
         if self._current is None:
             return
-        opener = getattr(self.bucket, "presigned_url", None)
+        opener = getattr(self._current.bucket, "presigned_url", None)
         if opener is None:
             self.notify("this bucket cannot produce a playable URL", severity="warning")
             return
@@ -324,13 +347,14 @@ class KeepsakeApp(App):
     def _finish(self, save_pending: bool = True) -> None:
         if save_pending:
             for item in [i for i in self.items if i.dirty]:
-                save_item(self.bucket, item)
-                self._wrote_anything = True
-        if self._wrote_anything:
-            # Sidecars are the source of truth; the catalog is rebuilt once, on
-            # the way out, rather than on every keystroke-sized save. This runs
-            # even when discarding, because earlier saves are already on the
-            # bucket and the catalog has to reflect them.
-            result = classify(self.bucket.list(self.prefix))
-            index_mod.write(self.bucket, index_mod.build_index(result, self.bucket))
+                save_item(item)
+                self._wrote.add(item.profile)
+        # Sidecars are the source of truth; each catalog is rebuilt once, on the
+        # way out, rather than on every keystroke-sized save. This runs even when
+        # discarding, because earlier saves are already on their buckets and the
+        # catalogs have to reflect them. Untouched libraries are left alone.
+        for profile, bucket in self.sources:
+            if profile in self._wrote:
+                result = classify(bucket.list(self.prefix))
+                index_mod.write(bucket, index_mod.build_index(result, bucket))
         self.call_from_thread(self.exit)

@@ -70,29 +70,32 @@ a natural fit — SPEC.md gives each library its own bucket, and a bucket-scoped
 B2 key per profile means one person's credentials cannot reach another's
 videos.
 
-Profile resolution: `--profile/-p`, then `KEEPSAKE_PROFILE`, then the only
-profile if there is exactly one.
+**Every command acts on all profiles unless you name one.** An archive is
+usually several buckets, and "all of them" is the common intent; `-p jane`
+narrows it to one.
 
 ## Commands
 
-Four verbs, matching the four things you actually want to do:
+Five verbs, matching the things you actually want to do:
 
 | | |
 |---|---|
 | `keepsake profiles` | Can I reach my buckets? |
-| `keepsake status` | What is in this bucket, and is it healthy? |
-| `keepsake sync` | Make the bucket match the convention. |
+| `keepsake status` | What is in my libraries, and are they healthy? |
+| `keepsake sync` | Make them match the convention. |
 | `keepsake edit` | Fill in titles, dates, tags, and notes. |
 | `keepsake version` | |
 
 ```sh
-uv run keepsake profiles --verify      # list profiles, reach each bucket
-uv run keepsake status -p jane         # survey + findings
-uv run keepsake status -p jane --files # every key
-uv run keepsake sync -p jane           # show every change it would make
-uv run keepsake sync -p jane --details # ...including full sidecar contents
-uv run keepsake sync -p jane --apply   # write them
-uv run keepsake edit -p jane           # terminal UI
+uv run keepsake profiles --verify   # list profiles, reach each bucket
+
+uv run keepsake status              # survey + findings, every library
+uv run keepsake sync                # show every change it would make
+uv run keepsake sync --apply        # write them
+uv run keepsake edit                # terminal UI over every library
+
+uv run keepsake status -p jane      # ...or narrow any of them to one
+uv run keepsake sync -p jane --details
 ```
 
 `sync` writes a stub sidecar for any media lacking one, then rebuilds
@@ -101,23 +104,24 @@ source of truth and the catalog is derived from them. It is idempotent:
 running it again writes nothing, and it skips rewriting an unchanged
 `index.json` rather than creating a pointless new object version.
 
-Adding videos to a bucket later, by any means, is followed by one command:
+Adding videos to any bucket later, by any means, is followed by one command:
 
 ```sh
-uv run keepsake sync -p jane --apply
+uv run keepsake sync --apply
 ```
 
 ### `keepsake edit`
 
-A list of the library on the left, a form on the right. Arrow through, type,
-save.
+Every library in one list on the left, a form on the right. Arrow through,
+type, save. With more than one library open, a `library` column shows which
+bucket each video lives in, and a save goes back to that bucket.
 
 ```
-┌─ media-jane ─────────────────────────┬─ IMG_0002.MOV ────────┐
-│ ● 2026/05/IMG_0002.MOV   —      62MB │ title       [       ] │
-│   2026/05/IMG_0007.MOV   Recital     │ recorded_at [       ] │
-│                                      │ tags        [       ] │
-│ 1 of 2 titled                        │ location    [       ] │
+┌─ 2 libraries ────────────────────────┬─ IMG_0002.MOV ────────┐
+│ ● jane  2026/05/IMG_0002.MOV   —     │ title       [       ] │
+│   jane  2026/05/IMG_0007.MOV Recital │ recorded_at [       ] │
+│   john  2026/05/IMG_0011.MOV   —     │ tags        [       ] │
+│ 1 of 3 titled                        │ location    [       ] │
 └──────────────────────────────────────┴───────────────────────┘
 ```
 
@@ -155,7 +159,8 @@ narrowing the window to a single request. B2's S3 API has no conditional
 writes, so it cannot be closed entirely.
 
 `index.json` is rebuilt once on quit, not on every save, so a session of edits
-does not leave a trail of catalog versions.
+does not leave a trail of catalog versions. Only libraries you actually wrote
+to are rebuilt.
 
 ### What `sync` records in a new sidecar
 

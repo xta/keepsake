@@ -10,10 +10,13 @@ import json
 import subprocess
 import sys
 from dataclasses import dataclass, field
-from typing import Any, Iterable
+from typing import Any, Iterable, Sequence
 
 from keepsake.core.classify import classify
 from keepsake.storage.base import Bucket
+
+#: A named library: the profile it came from and the bucket holding it.
+Source = tuple[str, Bucket]
 
 #: The fields a human fills in. Everything else in a sidecar is machine fact.
 EDITABLE = ("title", "recorded_at", "tags", "location", "notes")
@@ -42,6 +45,10 @@ def _from_text(name: str, text: str) -> Any:
 
 @dataclass
 class Item:
+    #: Which library this came from. Several can be open at once, so an item
+    #: has to carry its own bucket -- a save must go back where it came from.
+    profile: str
+    bucket: Bucket
     media_key: str
     sidecar_key: str
     payload: dict[str, Any]
@@ -65,6 +72,11 @@ class Item:
     def name(self) -> str:
         return self.media_key.rsplit("/", 1)[-1]
 
+    @property
+    def uid(self) -> str:
+        """Unique across libraries -- two buckets can hold the same key."""
+        return f"{self.profile}\x00{self.media_key}"
+
     def text(self, name: str) -> str:
         return _to_text(self.payload.get(name))
 
@@ -84,29 +96,35 @@ class Item:
             self.changed.add(name)
 
 
-def load_items(bucket: Bucket, prefix: str = "") -> list[Item]:
-    """Every media file that has a readable sidecar, sorted by key."""
-    result = classify(bucket.list(prefix))
+def load_items(sources: Sequence[Source], prefix: str = "") -> list[Item]:
+    """Every media file with a readable sidecar, across every open library.
+
+    Sorted by profile then key, so one library's videos stay together.
+    """
     items: list[Item] = []
-    for media_key, sidecar_key in sorted(result.media.items()):
-        try:
-            payload = json.loads(bucket.get(sidecar_key))
-        except (KeyError, json.JSONDecodeError):
-            continue  # `keepsake status` reports these
-        if not isinstance(payload, dict):
-            continue
-        items.append(
-            Item(
-                media_key=media_key,
-                sidecar_key=sidecar_key,
-                payload=payload,
-                size=result.size_of(media_key),
+    for profile, bucket in sources:
+        result = classify(bucket.list(prefix))
+        for media_key, sidecar_key in sorted(result.media.items()):
+            try:
+                payload = json.loads(bucket.get(sidecar_key))
+            except (KeyError, json.JSONDecodeError):
+                continue  # `keepsake status` reports these
+            if not isinstance(payload, dict):
+                continue
+            items.append(
+                Item(
+                    profile=profile,
+                    bucket=bucket,
+                    media_key=media_key,
+                    sidecar_key=sidecar_key,
+                    payload=payload,
+                    size=result.size_of(media_key),
+                )
             )
-        )
     return items
 
 
-def save_item(bucket: Bucket, item: Item) -> None:
+def save_item(item: Item) -> None:
     """Write the sidecar, merging this session's edits onto its current state.
 
     SPEC.md's concurrency note: sidecar writes are last-writer-wins, and the
@@ -121,6 +139,7 @@ def save_item(bucket: Bucket, item: Item) -> None:
     if not item.changed:
         return
 
+    bucket = item.bucket
     try:
         stored = json.loads(bucket.get(item.sidecar_key))
         if not isinstance(stored, dict):

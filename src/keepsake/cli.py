@@ -3,9 +3,12 @@
 Four verbs, matching the four things anyone actually wants to do:
 
     profiles   can I reach my buckets?
-    status     what is in this bucket, and is it healthy?
-    sync       make the bucket match the convention
+    status     what is in my libraries, and are they healthy?
+    sync       make them match the convention
+    edit       fill in titles, dates, tags and notes
     version
+
+Omitting `--profile` acts on every library in `.env`; naming one narrows it.
 
 `sync` writes only with `--apply`. Without it, it prints exactly what it would
 do and touches nothing.
@@ -22,7 +25,12 @@ from rich.table import Table
 from ulid import ULID
 
 from keepsake import __version__
-from keepsake.config import ConfigError, load_dotenv_if_present, load_profiles, resolve_profile
+from keepsake.config import (
+    ConfigError,
+    load_dotenv_if_present,
+    load_profiles,
+    resolve_profiles,
+)
 from keepsake.core import adopt as adopt_mod
 from keepsake.core import check as check_mod
 from keepsake.core import index as index_mod
@@ -39,7 +47,8 @@ console = Console()
 err = Console(stderr=True)
 
 ProfileOpt = Annotated[
-    Optional[str], typer.Option("--profile", "-p", help="Profile name from .env")
+    Optional[str],
+    typer.Option("--profile", "-p", help="Profile from .env. Omit to act on all of them."),
 ]
 PrefixOpt = Annotated[str, typer.Option("--prefix", help="Restrict to this key prefix")]
 
@@ -60,12 +69,13 @@ def _profiles():
 
 
 def _open(profile_name: str | None, *, writable: bool = False):
+    """Every selected profile, paired with an open bucket."""
     profiles = _profiles()
     try:
-        profile = resolve_profile(profile_name, profiles)
+        chosen = resolve_profiles(profile_name, profiles)
     except ConfigError as exc:
         _fail(str(exc))
-    return profile, profile.open(readonly=not writable)
+    return [(p, p.open(readonly=not writable)) for p in chosen]
 
 
 def _header(profile, extra: str = "") -> None:
@@ -118,8 +128,16 @@ def status(
         bool, typer.Option("--deep/--no-deep", help="Fetch and validate every sidecar")
     ] = True,
 ) -> None:
-    """What is in this bucket, and is it healthy?"""
-    prof, bucket = _open(profile)
+    """What is in these buckets, and are they healthy?"""
+    failed = False
+    for prof, bucket in _open(profile):
+        failed |= _status_one(prof, bucket, prefix, depth, show_files, deep)
+    if failed:
+        raise typer.Exit(1)
+
+
+def _status_one(prof, bucket, prefix, depth, show_files, deep) -> bool:
+    """Report one library. True when it has error-level findings."""
     result = classify(bucket.list(prefix))
     report = survey(result, prefix_depth=depth)
 
@@ -129,7 +147,7 @@ def status(
         for key in sorted(result.objects):
             console.print(f"  {key}  [dim]{human_bytes(result.size_of(key))}[/]")
         console.print()
-        return
+        return False
 
     ext_table = Table("extension", "count", "size", box=None, pad_edge=False)
     for ext, stats in list(report.by_extension.items())[:15]:
@@ -163,9 +181,7 @@ def status(
     else:
         console.print("\n[green]no findings[/]")
     console.print()
-
-    if any(f.level == "error" for f in findings):
-        raise typer.Exit(1)
+    return any(f.level == "error" for f in findings)
 
 
 def _index_is_current(bucket, fresh: dict[str, Any]) -> bool:
@@ -193,12 +209,16 @@ def sync(
         bool, typer.Option("--details", "-d", help="Show full sidecar contents in the plan")
     ] = False,
 ) -> None:
-    """Make the bucket match the convention.
+    """Make the selected libraries match the convention.
 
     Writes a stub sidecar for any media that lacks one, then rebuilds
     index.json from every sidecar. Idempotent: running it again does nothing.
     """
-    prof, bucket = _open(profile, writable=apply)
+    for prof, bucket in _open(profile, writable=apply):
+        _sync_one(prof, bucket, prefix, apply, details)
+
+
+def _sync_one(prof, bucket, prefix, apply, details) -> None:
     result = classify(bucket.list(prefix))
     stubs = adopt_mod.plan(result, new_id=lambda: str(ULID()))
 
@@ -258,11 +278,11 @@ def edit(
     profile: ProfileOpt = None,
     prefix: PrefixOpt = "",
 ) -> None:
-    """Browse the library and fill in titles, dates, tags, and notes."""
+    """Browse every library and fill in titles, dates, tags, and notes."""
     from keepsake.tui import KeepsakeApp
 
-    prof, bucket = _open(profile, writable=True)
-    KeepsakeApp(bucket, label=prof.bucket, prefix=prefix).run()
+    sources = [(prof.name, bucket) for prof, bucket in _open(profile, writable=True)]
+    KeepsakeApp(sources, prefix=prefix).run()
 
 
 if __name__ == "__main__":
