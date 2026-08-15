@@ -148,6 +148,19 @@ class B2Bucket(GuardedBucket):
         self._guard(key, allow_media)
         self._client.delete_object(Bucket=self.name, Key=key)
 
+    def presigned_url(self, key: str, expires_in: int = 3600) -> str:
+        """A time-limited URL a media player can stream directly.
+
+        Videos are far too large to pull through the terminal, and identifying
+        `IMG_0002.MP4` requires watching it. Handing this URL to the system
+        player streams it without downloading anything.
+        """
+        return self._client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": self.name, "Key": key},
+            ExpiresIn=expires_in,
+        )
+
     def lifecycle_keeps_all_versions(self) -> bool | None:
         """True if this bucket retains every file version.
 

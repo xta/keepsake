@@ -253,5 +253,17 @@ def sync(
         console.print("\n[green]already in sync[/]\n")
 
 
+@app.command()
+def edit(
+    profile: ProfileOpt = None,
+    prefix: PrefixOpt = "",
+) -> None:
+    """Browse the library and fill in titles, dates, tags, and notes."""
+    from keepsake.tui import KeepsakeApp
+
+    prof, bucket = _open(profile, writable=True)
+    KeepsakeApp(bucket, label=prof.bucket, prefix=prefix).run()
+
+
 if __name__ == "__main__":
     app()

@@ -71,6 +71,9 @@ class LocalDirBucket(GuardedBucket):
         self._guard(key, allow_media)
         self._path(key).unlink(missing_ok=True)
 
+    def presigned_url(self, key: str, expires_in: int = 3600) -> str:
+        return self._path(key).as_uri()
+
     def seed(self, key: str, data: bytes = b"") -> None:
         """Write a key bypassing the guard. Tests only -- builds fixture media."""
         path = self._path(key)

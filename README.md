@@ -77,6 +77,7 @@ Four verbs, matching the four things you actually want to do:
 | `keepsake profiles` | Can I reach my buckets? |
 | `keepsake status` | What is in this bucket, and is it healthy? |
 | `keepsake sync` | Make the bucket match the convention. |
+| `keepsake edit` | Fill in titles, dates, tags, and notes. |
 | `keepsake version` | |
 
 ```sh
@@ -86,6 +87,7 @@ uv run keepsake status -p family --files # every key
 uv run keepsake sync -p family           # show every change it would make
 uv run keepsake sync -p family --details # ...including full sidecar contents
 uv run keepsake sync -p family --apply   # write them
+uv run keepsake edit -p family           # terminal UI
 ```
 
 `sync` writes a stub sidecar for any media lacking one, then rebuilds
@@ -99,6 +101,45 @@ Adding videos to a bucket later, by any means, is followed by one command:
 ```sh
 uv run keepsake sync -p family --apply
 ```
+
+### `keepsake edit`
+
+A list of the library on the left, a form on the right. Arrow through, type,
+save.
+
+```
+┌─ media-main ─────────────────────┬─ IMG_0002.MOV ────────┐
+│ ● 2026/05/IMG_0002.MOV   —      62MB │ title       [       ] │
+│   2026/05/IMG_0007.MOV   Recital     │ recorded_at [       ] │
+│                                      │ tags        [       ] │
+│ 1 of 4 titled                        │ location    [       ] │
+└──────────────────────────────────────┴───────────────────────┘
+```
+
+| Key | |
+|---|---|
+| `ctrl+s` | Save |
+| `ctrl+o` | Open the selected video in your system player |
+| `ctrl+u` | Show only untitled items |
+| `ctrl+q` | Save and quit |
+
+All bindings are ctrl-chorded because a bare letter would be swallowed by
+whichever field has focus.
+
+`ctrl+o` matters more than it looks: you cannot title `IMG_0002.MP4` without
+watching it. It signs a short-lived URL and hands it to the system player,
+which streams the video without downloading it.
+
+**Saving re-reads before it writes.** SPEC.md notes that sidecar writes are
+last-writer-wins and the unsafe window is the whole edit session — someone who
+loads a sidecar, types for two minutes, then PUTs the object they started with
+would silently discard anything written meanwhile. So on save the stored
+sidecar is fetched again and only the fields edited in this session are applied,
+narrowing the window to a single request. B2's S3 API has no conditional
+writes, so it cannot be closed entirely.
+
+`index.json` is rebuilt once on quit, not on every save, so a session of edits
+does not leave a trail of catalog versions.
 
 ### What `sync` records in a new sidecar
 

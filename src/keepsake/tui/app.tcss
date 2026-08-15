@@ -1,0 +1,30 @@
+#left {
+    width: 3fr;
+    border-right: solid $panel;
+}
+
+#items {
+    height: 1fr;
+}
+
+#tally {
+    width: 1fr;
+    height: 1;
+    padding: 0 1;
+    color: $text-muted;
+}
+
+#right {
+    width: 2fr;
+    padding: 1 2;
+}
+
+#detail-name {
+    text-style: bold;
+    padding-bottom: 1;
+}
+
+.field-label {
+    color: $text-muted;
+    padding-top: 1;
+}
