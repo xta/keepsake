@@ -135,6 +135,75 @@ class TestApp:
         written = json.loads(bucket.get("2026/05/IMG_0002.MOV.json"))
         assert written["title"] == "Spring concert"
 
+    async def test_arrows_move_between_list_and_fields(self, bucket):
+        app = KeepsakeApp(bucket, label="test-bucket")
+        async with app.run_test() as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            app.query_one("#items").focus()
+            await pilot.pause()
+
+            await pilot.press("right")          # into the form
+            await pilot.pause()
+            assert app.focused.id == "field-title"
+
+            await pilot.press("down")           # next field
+            await pilot.pause()
+            assert app.focused.id == "field-recorded_at"
+
+            await pilot.press("up")             # back up
+            await pilot.pause()
+            assert app.focused.id == "field-title"
+
+            await pilot.press("left")           # at column 0 -> back to list
+            await pilot.pause()
+            assert app.focused.id == "items"
+
+    async def test_left_inside_text_moves_the_cursor_not_the_focus(self, bucket):
+        app = KeepsakeApp(bucket, label="test-bucket")
+        async with app.run_test() as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            field = app.query_one("#field-title")
+            field.focus()
+            await pilot.pause()
+            await pilot.press("a", "b")
+            await pilot.pause()
+            assert field.cursor_position == 2
+
+            await pilot.press("left")
+            await pilot.pause()
+            assert app.focused.id == "field-title"
+            assert field.cursor_position == 1
+
+    async def test_letter_bindings_do_not_hijack_typing(self, bucket):
+        """`o` and `u` are actions from the list but literal text in a field."""
+        app = KeepsakeApp(bucket, label="test-bucket")
+        async with app.run_test() as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            app.query_one("#field-title").focus()
+            await pilot.pause()
+            await pilot.press("o", "u", "t")
+            await pilot.pause()
+
+            assert app.query_one("#field-title").value == "out"
+            assert app.untitled_only is False
+
+    async def test_escape_returns_to_the_list(self, bucket):
+        app = KeepsakeApp(bucket, label="test-bucket")
+        async with app.run_test() as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            app.query_one("#field-notes").focus()
+            await pilot.pause()
+            await pilot.press("escape")
+            await pilot.pause()
+            assert app.focused.id == "items"
+
     async def test_untitled_filter_narrows_the_list(self, bucket):
         app = KeepsakeApp(bucket, label="test-bucket")
         async with app.run_test() as pilot:
@@ -142,7 +211,9 @@ class TestApp:
             await pilot.pause()
             assert app.query_one("#items").row_count == 2
 
-            await pilot.press("ctrl+u")
+            app.query_one("#items").focus()
+            await pilot.pause()
+            await pilot.press("u")
             await pilot.pause()
             assert app.query_one("#items").row_count == 1
 

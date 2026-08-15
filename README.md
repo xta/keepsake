@@ -116,17 +116,23 @@ save.
 └──────────────────────────────────────┴───────────────────────┘
 ```
 
+Navigate entirely with arrows: `up`/`down` through the list, `right` into the
+form, `up`/`down` between fields, `left` at the start of a field back to the
+list. `escape` returns to the list from anywhere.
+
 | Key | |
 |---|---|
+| `o` | Open the selected video in your system player |
+| `u` | Show only untitled items |
 | `ctrl+s` | Save |
-| `ctrl+o` | Open the selected video in your system player |
-| `ctrl+u` | Show only untitled items |
 | `ctrl+q` | Save and quit |
+| `escape` | Back to the list |
 
-All bindings are ctrl-chorded because a bare letter would be swallowed by
-whichever field has focus.
+The bare letters act only from the list — a focused field consumes printable
+keys, so typing "out" in a title stays text. `ctrl+o` works from anywhere.
+There is deliberately no `ctrl+u`: `Input` binds it to delete-to-start.
 
-`ctrl+o` matters more than it looks: you cannot title `IMG_0002.MP4` without
+`o` matters more than it looks: you cannot title `IMG_0002.MP4` without
 watching it. It signs a short-lived URL and hands it to the system player,
 which streams the video without downloading it.
 

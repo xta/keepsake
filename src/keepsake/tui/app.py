@@ -25,6 +25,41 @@ from keepsake.tui.library import EDITABLE, Item, load_items, open_externally, sa
 NO_TITLE = "—"
 
 
+class MediaTable(DataTable):
+    """The library list. Right or Enter steps into the form."""
+
+    BINDINGS = [
+        # DataTable binds left/right for its column cursor, which does nothing
+        # in row-cursor mode, so the keys are free for moving between panes.
+        Binding("right,enter", "edit_fields", "Edit", show=False),
+    ]
+
+    def action_edit_fields(self) -> None:
+        self.app.action_focus_fields()
+
+
+class FieldInput(Input):
+    """A metadata field. Up/Down move between fields, Left at column 0 exits."""
+
+    BINDINGS = [
+        Binding("up", "prev_field", show=False),
+        Binding("down", "next_field", show=False),
+        Binding("left", "back_or_left", show=False),
+    ]
+
+    def action_prev_field(self) -> None:
+        self.app.focus_field_by_offset(-1)
+
+    def action_next_field(self) -> None:
+        self.app.focus_field_by_offset(1)
+
+    def action_back_or_left(self) -> None:
+        if self.cursor_position == 0:
+            self.app.action_focus_list()
+        else:
+            self.action_cursor_left()
+
+
 class KeepsakeApp(App):
     """List on the left, form on the right."""
 
@@ -32,12 +67,16 @@ class KeepsakeApp(App):
     TITLE = "keepsake"
 
     BINDINGS = [
-        # Deliberately all ctrl-chorded: single letters would be swallowed by
-        # whichever Input has focus.
         Binding("ctrl+s", "save", "Save"),
-        Binding("ctrl+o", "open_media", "Open in player"),
-        Binding("ctrl+u", "toggle_untitled", "Untitled only"),
+        Binding("o", "open_media", "Open in player"),
+        Binding("u", "toggle_untitled", "Untitled only"),
+        Binding("escape", "focus_list", "Back to list"),
         Binding("ctrl+q", "finish", "Save & quit"),
+        # A focused Input consumes printable keys, so the bare letters above
+        # only fire from the list. ctrl+o works from anywhere and is hidden to
+        # keep the footer readable. There is deliberately no ctrl+u alias:
+        # Input binds it to delete-to-start, so it would eat a field's text.
+        Binding("ctrl+o", "open_media", "Open in player", show=False),
     ]
 
     def __init__(self, bucket: Bucket, label: str = "", prefix: str = ""):
@@ -57,13 +96,13 @@ class KeepsakeApp(App):
         yield Header()
         with Horizontal():
             with Vertical(id="left"):
-                yield DataTable(id="items", cursor_type="row", zebra_stripes=True)
+                yield MediaTable(id="items", cursor_type="row", zebra_stripes=True)
                 yield Label("loading...", id="tally")
             with VerticalScroll(id="right"):
                 yield Static(NO_TITLE, id="detail-name")
                 for name in EDITABLE:
                     yield Label(name, classes="field-label")
-                    yield Input(id=f"field-{name}", placeholder=name)
+                    yield FieldInput(id=f"field-{name}", placeholder=name)
         yield Footer()
 
     def on_mount(self) -> None:
@@ -196,6 +235,25 @@ class KeepsakeApp(App):
             self.notify(f"could not open: {exc}", severity="error")
         else:
             self.notify(f"opening {self._current.name}")
+
+    def action_focus_list(self) -> None:
+        self.query_one("#items", DataTable).focus()
+
+    def action_focus_fields(self) -> None:
+        if self._current is not None:
+            self.query_one(f"#field-{EDITABLE[0]}", Input).focus()
+
+    def focus_field_by_offset(self, delta: int) -> None:
+        """Move between fields. Going up past the first returns to the list."""
+        ids = [f"field-{name}" for name in EDITABLE]
+        focused = self.focused
+        if focused is None or focused.id not in ids:
+            return
+        index = ids.index(focused.id) + delta
+        if index < 0:
+            self.action_focus_list()
+            return
+        self.query_one(f"#{ids[min(index, len(ids) - 1)]}", Input).focus()
 
     def action_toggle_untitled(self) -> None:
         self.untitled_only = not self.untitled_only
