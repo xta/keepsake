@@ -116,13 +116,17 @@ Every library in one list on the left, a form on the right. Arrow through,
 type, save. With more than one library open, a `library` column shows which
 bucket each video lives in, and a save goes back to that bucket.
 
+The `length` column shows the runtime when the sidecar records `duration_s`,
+and falls back to file size — dimmed, so the two read apart — when it does
+not. Nothing populates `duration_s` yet, so in practice it shows sizes.
+
 ```
-┌─ 2 libraries ────────────────────────┬─ IMG_0002.MOV ────────┐
-│ ● jane  2026/05/IMG_0002.MOV   —     │ title       [       ] │
-│   jane  2026/05/IMG_0007.MOV Recital │ recorded_at [       ] │
-│   john  2026/05/IMG_0011.MOV   —     │ tags        [       ] │
-│ 1 of 3 titled                        │ location    [       ] │
-└──────────────────────────────────────┴───────────────────────┘
+┌─ 2 libraries ────────────────────────────┬─ IMG_0002.MOV ──────────┐
+│ ● jane  IMG_0002.MOV   3:42  Spring play │ title       [       ]   │
+│   jane  IMG_0007.MOV  62 MB  —           │ recorded_at [       ]   │
+│   john  IMG_0011.MOV 240 MB  —           │ tags        [       ]   │
+│ 1 of 3 titled                            │ location    [       ]   │
+└──────────────────────────────────────────┴─────────────────────────┘
 ```
 
 Navigate entirely with arrows: `up`/`down` through the list, `right` into the

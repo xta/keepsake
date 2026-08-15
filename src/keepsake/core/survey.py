@@ -95,3 +95,26 @@ def human_bytes(n: int) -> str:
             return f"{value:,.1f} {unit}" if unit != "B" else f"{int(value)} B"
         value /= step
     return f"{value:,.1f} TB"
+
+
+def human_duration(seconds: float | int | None) -> str:
+    """`3:42` or `1:02:13`. Empty when the runtime is unknown."""
+    if not isinstance(seconds, (int, float)) or seconds <= 0:
+        return ""
+    total = int(round(seconds))
+    hours, rest = divmod(total, 3600)
+    minutes, secs = divmod(rest, 60)
+    return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes}:{secs:02d}"
+
+
+def compact_bytes(n: int) -> str:
+    """`62 MB`, `1.2 GB` -- rounded harder than human_bytes, for list columns."""
+    step = 1024.0
+    value = float(n)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if abs(value) < step or unit == "TB":
+            if unit == "B":
+                return f"{int(value)} B"
+            return f"{value:.0f} {unit}" if value >= 10 else f"{value:.1f} {unit}"
+        value /= step
+    return f"{value:.0f} TB"

@@ -17,11 +17,12 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
+from rich.text import Text
 from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Static
 
 from keepsake.core import index as index_mod
 from keepsake.core.classify import classify
-from keepsake.core.survey import human_bytes
+from keepsake.core.survey import compact_bytes, human_bytes, human_duration
 from keepsake.tui.library import (
     EDITABLE,
     Item,
@@ -37,6 +38,19 @@ NO_TITLE = "—"
 #: Pinned so the app looks the same everywhere. Swap for any name in
 #: textual.theme.BUILTIN_THEMES; ctrl+p previews them live.
 THEME = "tokyo-night"
+
+
+def _length_cell(item: Item) -> Text:
+    """Runtime when the sidecar records one, file size otherwise.
+
+    `duration_s` is optional in SPEC.md and nothing populates it yet, so most
+    rows fall back to size. Size is dimmed to keep the two readable apart --
+    one is how long the video is, the other is merely how big.
+    """
+    runtime = human_duration(item.payload.get("duration_s"))
+    if runtime:
+        return Text(runtime)
+    return Text(compact_bytes(item.size), style="dim")
 
 
 class ConfirmQuit(ModalScreen[str]):
@@ -172,6 +186,7 @@ class KeepsakeApp(App):
         if self.multi:
             table.add_column("library", key="library")
         table.add_column("media", key="media")
+        table.add_column("length", key="length")
         table.add_column("title", key="title")
         table.add_column("date", key="date")
         table.sub_title = self.label
@@ -198,7 +213,12 @@ class KeepsakeApp(App):
         table = self.query_one("#items", DataTable)
         table.clear()
         for item in self._visible():
-            cells = [item.media_key, item.text("title") or NO_TITLE, item.text("recorded_at")]
+            cells = [
+                item.media_key,
+                _length_cell(item),
+                item.text("title") or NO_TITLE,
+                item.text("recorded_at"),
+            ]
             if self.multi:
                 cells.insert(0, item.profile)
             table.add_row(*cells, key=item.uid)

@@ -6,7 +6,7 @@ import pytest
 
 from keepsake.storage.base import MediaWriteRefused
 from keepsake.storage.local import LocalDirBucket
-from keepsake.tui.app import NO_TITLE, KeepsakeApp
+from keepsake.tui.app import NO_TITLE, KeepsakeApp, _length_cell
 from keepsake.tui.library import Item, load_items, save_item, titled
 
 
@@ -397,3 +397,41 @@ class TestMultipleLibraries:
         jane, john = two[0][1], two[1][1]
         assert json.loads(jane.get("index.json"))["count"] == 1
         assert john.head("index.json") is None, "untouched library must not be rewritten"
+
+
+class TestLengthColumn:
+    def test_runtime_wins_when_the_sidecar_records_one(self, tmp_path):
+        b = LocalDirBucket(tmp_path, readonly=False)
+        b.seed("clip.MOV", b"x" * 65_413_818)
+        b.seed("clip.MOV.json", sidecar("clip.MOV", duration_s=222))
+        cell = _length_cell(load_items([("t", b)])[0])
+        assert cell.plain == "3:42"
+        assert cell.style == ""
+
+    def test_size_is_the_fallback_and_is_dimmed(self, tmp_path):
+        b = LocalDirBucket(tmp_path, readonly=False)
+        b.seed("clip.MOV", b"x" * 65_413_818)
+        b.seed("clip.MOV.json", sidecar("clip.MOV"))
+        cell = _length_cell(load_items([("t", b)])[0])
+        assert cell.plain == "62 MB"
+        assert cell.style == "dim"
+
+    def test_hours_are_shown(self, tmp_path):
+        b = LocalDirBucket(tmp_path, readonly=False)
+        b.seed("clip.MOV", b"x")
+        b.seed("clip.MOV.json", sidecar("clip.MOV", duration_s=3733))
+        assert _length_cell(load_items([("t", b)])[0]).plain == "1:02:13"
+
+    def test_a_nonsense_duration_falls_back_to_size(self, tmp_path):
+        b = LocalDirBucket(tmp_path, readonly=False)
+        b.seed("clip.MOV", b"x" * 2048)
+        b.seed("clip.MOV.json", sidecar("clip.MOV", duration_s="not a number"))
+        assert _length_cell(load_items([("t", b)])[0]).plain == "2.0 KB"
+
+    async def test_the_column_is_present(self, bucket):
+        app = KeepsakeApp([("test", bucket)])
+        async with app.run_test() as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            labels = [c.label.plain for c in app.query_one("#items").columns.values()]
+            assert labels == ["media", "length", "title", "date"]
