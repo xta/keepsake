@@ -7,7 +7,7 @@ import pytest
 from keepsake.storage.base import MediaWriteRefused
 from keepsake.storage.local import LocalDirBucket
 from keepsake.tui.app import NO_TITLE, KeepsakeApp, _length_cell
-from keepsake.tui.library import Item, load_items, save_item, titled
+from keepsake.tui.library import Item, is_spec_date, load_items, save_item, titled
 
 
 def sidecar(file: str, **extra) -> bytes:
@@ -435,3 +435,67 @@ class TestLengthColumn:
             await pilot.pause()
             labels = [c.label.plain for c in app.query_one("#items").columns.values()]
             assert labels == ["media", "length", "title", "date"]
+
+
+class TestFieldHints:
+    async def test_recorded_at_advertises_its_format(self, bucket):
+        app = KeepsakeApp([("test", bucket)])
+        async with app.run_test() as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert app.query_one("#field-recorded_at").placeholder == "YYYY-MM-DD"
+            labels = [str(l.render()) for l in app.query(".field-label")]
+            assert any("YYYY-MM-DD" in text for text in labels)
+
+    async def test_an_off_spec_date_is_marked_invalid(self, bucket):
+        app = KeepsakeApp([("test", bucket)])
+        async with app.run_test() as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            field = app.query_one("#field-recorded_at")
+
+            field.value = "05/22/26"          # what a person actually types
+            await pilot.pause()
+            assert field.has_class("-invalid")
+
+            field.value = "2026-05-22"
+            await pilot.pause()
+            assert not field.has_class("-invalid")
+
+    async def test_an_empty_date_is_not_an_error(self, bucket):
+        app = KeepsakeApp([("test", bucket)])
+        async with app.run_test() as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            field = app.query_one("#field-recorded_at")
+            field.value = ""
+            await pilot.pause()
+            assert not field.has_class("-invalid")
+
+    async def test_other_fields_are_unconstrained(self, bucket):
+        app = KeepsakeApp([("test", bucket)])
+        async with app.run_test() as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            field = app.query_one("#field-title")
+            field.value = "anything at all 05/22/26"
+            await pilot.pause()
+            assert not field.has_class("-invalid")
+
+
+@pytest.mark.parametrize(
+    "text,valid",
+    [
+        ("2026-05-22", True),
+        ("2026-05-22T14:30:00Z", True),
+        ("2026-05-22T14:30:00+09:00", True),
+        ("", True),
+        ("05/22/26", False),
+        ("05/22/2026", False),
+        ("5/22/26", False),
+        ("May 22 2026", False),
+        ("2026-5-2", False),
+    ],
+)
+def test_is_spec_date(text, valid):
+    assert is_spec_date(text) is valid

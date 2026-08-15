@@ -17,6 +17,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
+from textual.validation import Regex
 from rich.text import Text
 from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Static
 
@@ -25,6 +26,8 @@ from keepsake.core.classify import classify
 from keepsake.core.survey import compact_bytes, human_bytes, human_duration
 from keepsake.tui.library import (
     EDITABLE,
+    FIELD_HINTS,
+    RECORDED_AT_PATTERN,
     Item,
     Source,
     load_items,
@@ -176,8 +179,21 @@ class KeepsakeApp(App):
             with VerticalScroll(id="right"):
                 yield Static(NO_TITLE, id="detail-name")
                 for name in EDITABLE:
-                    yield Label(name, classes="field-label")
-                    yield FieldInput(id=f"field-{name}", placeholder=name)
+                    hint = FIELD_HINTS.get(name, "")
+                    yield Label(
+                        f"{name}  [dim]{hint}[/]" if hint else name,
+                        classes="field-label",
+                    )
+                    yield FieldInput(
+                        id=f"field-{name}",
+                        placeholder=hint,
+                        validators=(
+                            [Regex(RECORDED_AT_PATTERN, failure_description="use YYYY-MM-DD")]
+                            if name == "recorded_at"
+                            else None
+                        ),
+                        valid_empty=True,
+                    )
         yield Footer()
 
     def on_mount(self) -> None:

@@ -24,6 +24,27 @@ EDITABLE = ("title", "recorded_at", "tags", "location", "notes")
 #: Stored as a JSON array, edited as comma-separated text.
 LIST_FIELDS = frozenset({"tags"})
 
+#: Shown beside each field and as its placeholder. A field with a required
+#: shape has to say so -- otherwise people reasonably type dates the way they
+#: write dates, and the sidecar ends up off-spec.
+FIELD_HINTS = {
+    "recorded_at": "YYYY-MM-DD",
+    "tags": "comma, separated",
+}
+
+#: SPEC.md: `YYYY-MM-DD`, or RFC 3339 when the time is known.
+RECORDED_AT_PATTERN = (
+    r"^\d{4}-\d{2}-\d{2}"
+    r"(T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2}))?$"
+)
+
+
+def is_spec_date(text: str) -> bool:
+    """True when `text` is empty or matches SPEC's recorded_at format."""
+    import re
+
+    return not text.strip() or bool(re.match(RECORDED_AT_PATTERN, text.strip()))
+
 
 def _to_text(value: Any) -> str:
     if value is None:

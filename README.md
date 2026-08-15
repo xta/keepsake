@@ -150,6 +150,12 @@ The bare letters act only from the list — a focused field consumes printable
 keys, so typing "out" in a title stays text. `ctrl+o` works from anywhere.
 There is deliberately no `ctrl+u`: `Input` binds it to delete-to-start.
 
+Fields that have a required shape say so, beside the label and as the
+placeholder, and `recorded_at` turns red when what you typed is not
+`YYYY-MM-DD`. SPEC fixes that format for a reason — `03/04/2026` means two
+different days depending on who wrote it — so the field says which one it
+wants rather than accepting anything and producing an unreadable archive.
+
 `o` matters more than it looks: you cannot title `IMG_0002.MOV` without
 watching it. It signs a short-lived URL and hands it to the system player,
 which streams the video without downloading it.
