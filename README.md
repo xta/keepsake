@@ -108,11 +108,11 @@ A list of the library on the left, a form on the right. Arrow through, type,
 save.
 
 ```
-┌─ media-main ─────────────────────┬─ IMG_0002.MOV ────────┐
+┌─ media-main ─────────────────────────┬─ IMG_0002.MOV ────────┐
 │ ● 2026/05/IMG_0002.MOV   —      62MB │ title       [       ] │
 │   2026/05/IMG_0007.MOV   Recital     │ recorded_at [       ] │
 │                                      │ tags        [       ] │
-│ 1 of 4 titled                        │ location    [       ] │
+│ 1 of 2 titled                        │ location    [       ] │
 └──────────────────────────────────────┴───────────────────────┘
 ```
 
@@ -132,7 +132,7 @@ The bare letters act only from the list — a focused field consumes printable
 keys, so typing "out" in a title stays text. `ctrl+o` works from anywhere.
 There is deliberately no `ctrl+u`: `Input` binds it to delete-to-start.
 
-`o` matters more than it looks: you cannot title `IMG_0002.MP4` without
+`o` matters more than it looks: you cannot title `IMG_0002.MOV` without
 watching it. It signs a short-lived URL and hands it to the system player,
 which streams the video without downloading it.
 

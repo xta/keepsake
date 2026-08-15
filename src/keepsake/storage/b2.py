@@ -152,7 +152,7 @@ class B2Bucket(GuardedBucket):
         """A time-limited URL a media player can stream directly.
 
         Videos are far too large to pull through the terminal, and identifying
-        `IMG_0002.MP4` requires watching it. Handing this URL to the system
+        `IMG_0002.MOV` requires watching it. Handing this URL to the system
         player streams it without downloading anything.
         """
         return self._client.generate_presigned_url(
