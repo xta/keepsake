@@ -21,7 +21,7 @@ it one.
 | **[`cli/`](cli/)** | Python command line and terminal UI. Survey a bucket, adopt existing videos, upload new ones, fill in titles. |
 
 These are sample implementations. Where an implementation and the spec disagree,
-the spec is right and the code has a bug.
+defer to the spec.
 
 ## License
 
