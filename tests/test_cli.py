@@ -147,6 +147,227 @@ class TestSync:
         assert json.loads(library.get("index.json"))["count"] == 3
 
 
+class TestAdd:
+    @pytest.fixture
+    def clip(self, tmp_path):
+        """A local file to upload, with a real QuickTime header."""
+        from datetime import datetime, timezone
+
+        from test_moov import movie, mvhd_v0, seconds_since_1904
+
+        stamp = seconds_since_1904(datetime(2026, 5, 22, tzinfo=timezone.utc))
+        source = tmp_path / "incoming"
+        source.mkdir()
+        path = source / "recital.mov"
+        path.write_bytes(movie(mvhd_v0(creation=stamp, duration=600)).getvalue())
+        return path
+
+    def test_dry_run_writes_nothing(self, library, clip):
+        result = runner.invoke(cli.app, ["add", str(clip), "--dry-run"])
+        assert "2026/05/recital.mov" in result.stdout
+        assert "nothing written" in result.stdout
+        assert library.head("2026/05/recital.mov") is None
+
+    def test_dry_run_says_plainly_that_it_is_clear(self, library, clip):
+        """"No red" is not a verdict; say so in words."""
+        result = runner.invoke(cli.app, ["add", str(clip), "--dry-run"])
+        assert "no problems found" in result.stdout
+        assert result.exit_code == 0
+
+    def test_dry_run_counts_the_refusals(self, library, clip):
+        stray = clip.parent / "no-extension"
+        stray.write_bytes(b"x" * 64)
+        result = runner.invoke(cli.app, ["add", str(clip), str(stray), "--dry-run"])
+        assert "1 file ready" in result.stdout
+        assert "1 refused" in result.stdout
+        assert "no problems found" not in result.stdout
+        assert result.exit_code == 1
+
+    def test_a_date_read_from_the_file_is_reported(self, library, clip):
+        result = runner.invoke(cli.app, ["add", str(clip), "--dry-run"])
+        assert "recorded 2026-05-22" in result.stdout
+
+    def test_a_missing_date_says_it_fell_back_to_today(self, library, tmp_path):
+        """Otherwise a video shot this month and one with no date look alike."""
+        from test_moov import movie, mvhd_v0
+
+        undated = tmp_path / "incoming" / "undated.mov"
+        undated.parent.mkdir(exist_ok=True)
+        undated.write_bytes(movie(mvhd_v0(creation=0, duration=600)).getvalue())
+
+        result = runner.invoke(cli.app, ["add", str(undated), "--dry-run"])
+        assert "no date in file, filed under today" in result.stdout
+
+    def test_uploads_media_sidecar_and_index(self, library, clip):
+        result = runner.invoke(cli.app, ["add", str(clip), "--yes", "--no-edit"])
+        assert result.exit_code == 0, result.output
+
+        assert library.get("2026/05/recital.mov") == clip.read_bytes()
+        sidecar = json.loads(library.get("2026/05/recital.mov.json"))
+        assert sidecar["recorded_at"] == "2026-05-22"
+        assert sidecar["duration_s"] == 1.0
+        assert "2026/05/recital.mov" in {
+            item["path"] for item in json.loads(library.get("index.json"))["items"]
+        }
+
+    def test_title_is_written_when_given(self, library, clip):
+        runner.invoke(
+            cli.app, ["add", str(clip), "-t", "Spring Recital", "--yes", "--no-edit"]
+        )
+        sidecar = json.loads(library.get("2026/05/recital.mov.json"))
+        assert sidecar["title"] == "Spring Recital"
+
+    def test_into_overrides_the_dated_layout(self, library, clip):
+        runner.invoke(
+            cli.app, ["add", str(clip), "--into", "home-movies", "--yes", "--no-edit"]
+        )
+        assert library.head("home-movies/recital.mov") is not None
+
+    def test_into_slash_warns_and_uses_the_root(self, library, clip):
+        result = runner.invoke(
+            cli.app, ["add", str(clip), "--into", "/", "--yes", "--no-edit"]
+        )
+        assert "bucket root" in result.stdout
+        assert library.head("recital.mov") is not None
+
+    def test_refuses_to_overwrite(self, library, clip):
+        runner.invoke(cli.app, ["add", str(clip), "--yes", "--no-edit"])
+        result = runner.invoke(cli.app, ["add", str(clip), "--yes", "--no-edit"])
+        assert result.exit_code == 1
+        assert "already exists" in result.stdout
+
+    def test_declining_the_confirmation_writes_nothing(self, library, clip):
+        result = runner.invoke(cli.app, ["add", str(clip), "--no-edit"], input="n\n")
+        assert result.exit_code == 1
+        assert library.head("2026/05/recital.mov") is None
+
+    def test_title_with_several_files_is_an_error(self, library, clip):
+        other = clip.parent / "second.mov"
+        other.write_bytes(clip.read_bytes())
+        result = runner.invoke(
+            cli.app, ["add", str(clip), str(other), "-t", "One Title", "--yes"]
+        )
+        assert result.exit_code == 1
+        assert "single file" in result.output
+
+    def test_a_refused_file_does_not_stop_the_others(self, library, clip):
+        stray = clip.parent / "no-extension"
+        stray.write_bytes(b"x" * 64)
+
+        result = runner.invoke(
+            cli.app, ["add", str(clip), str(stray), "--yes", "--no-edit"]
+        )
+
+        assert library.head("2026/05/recital.mov") is not None
+        assert library.head("no-extension") is None
+        # Non-zero because something was refused, even though the rest landed.
+        assert result.exit_code == 1
+
+    def test_requires_a_profile_when_several_exist(self, clip, monkeypatch):
+        from keepsake.config import Profile
+
+        def two(name, writable=False):
+            return [
+                (Profile(n, n, "https://s3.example", "k", "s"), None)
+                for n in ("rex", "sam")
+            ]
+
+        monkeypatch.setattr(cli, "_open", two)
+        result = runner.invoke(cli.app, ["add", str(clip), "--yes"])
+        assert result.exit_code == 1
+        assert "which library" in result.output
+
+
+class TestSet:
+    """Metadata from the shell, so a CLI-only workflow is complete."""
+
+    def test_sets_a_title(self, library):
+        result = runner.invoke(
+            cli.app, ["set", "piano.mp4", "-p", "test", "--title", "Spring Recital"]
+        )
+        assert result.exit_code == 0, result.output
+        stored = json.loads(library.get("media/2026/piano.mp4.json"))
+        assert stored["title"] == "Spring Recital"
+
+    def test_resolves_a_bare_filename_to_its_key(self, library):
+        result = runner.invoke(cli.app, ["set", "piano.mp4", "-p", "test", "-t", "x"])
+        assert "media/2026/piano.mp4" in result.stdout
+
+    def test_accepts_the_full_key_too(self, library):
+        result = runner.invoke(
+            cli.app, ["set", "media/2026/piano.mp4", "-p", "test", "-t", "x"]
+        )
+        assert result.exit_code == 0, result.output
+
+    def test_tags_split_on_commas(self, library):
+        runner.invoke(
+            cli.app, ["set", "piano.mp4", "-p", "test", "--tags", "piano, school"]
+        )
+        stored = json.loads(library.get("media/2026/piano.mp4.json"))
+        assert stored["tags"] == ["piano", "school"]
+
+    def test_one_field_can_span_several_files(self, library):
+        runner.invoke(cli.app, ["sync", "--apply"])
+        result = runner.invoke(
+            cli.app,
+            ["set", "piano.mp4", "IMG_4471.mov", "-p", "test", "--tags", "transfer"],
+        )
+        assert result.exit_code == 0, result.output
+        for key in ("media/2026/piano.mp4.json", "media/2025/IMG_4471.mov.json"):
+            assert json.loads(library.get(key))["tags"] == ["transfer"]
+
+    def test_an_empty_value_clears_the_field(self, library):
+        runner.invoke(cli.app, ["set", "piano.mp4", "-p", "test", "--title", ""])
+        assert "title" not in json.loads(library.get("media/2026/piano.mp4.json"))
+
+    def test_dry_run_writes_nothing(self, library):
+        result = runner.invoke(
+            cli.app, ["set", "piano.mp4", "-p", "test", "-t", "New", "--dry-run"]
+        )
+        assert "nothing written" in result.stdout
+        assert json.loads(library.get("media/2026/piano.mp4.json"))["title"] == "Spring Recital"
+
+    def test_setting_the_same_value_writes_nothing(self, library):
+        result = runner.invoke(
+            cli.app, ["set", "piano.mp4", "-p", "test", "-t", "Spring Recital"]
+        )
+        assert "already set" in result.stdout
+
+    def test_rebuilds_the_index(self, library):
+        runner.invoke(cli.app, ["sync", "--apply"])
+        runner.invoke(cli.app, ["set", "piano.mp4", "-p", "test", "-t", "Renamed"])
+        catalog = json.loads(library.get("index.json"))
+        entry = next(i for i in catalog["items"] if i["path"].endswith("piano.mp4"))
+        assert entry["title"] == "Renamed"
+
+    def test_an_off_spec_date_is_refused(self, library):
+        """SPEC requires YYYY-MM-DD; the archive must read the same forever."""
+        result = runner.invoke(
+            cli.app, ["set", "piano.mp4", "-p", "test", "--recorded-at", "05/22/26"]
+        )
+        assert result.exit_code == 1
+        assert "not a SPEC date" in result.output
+        assert "recorded_at" not in json.loads(library.get("media/2026/piano.mp4.json"))
+
+    def test_an_unknown_file_is_a_clean_error(self, library):
+        result = runner.invoke(cli.app, ["set", "nope.mov", "-p", "test", "-t", "x"])
+        assert result.exit_code == 1
+        assert "no file matching" in result.output
+
+    def test_no_fields_is_a_clean_error(self, library):
+        result = runner.invoke(cli.app, ["set", "piano.mp4", "-p", "test"])
+        assert result.exit_code == 1
+        assert "nothing to set" in result.output
+
+    def test_title_across_several_files_is_refused(self, library):
+        runner.invoke(cli.app, ["sync", "--apply"])
+        result = runner.invoke(
+            cli.app, ["set", "piano.mp4", "IMG_4471.mov", "-p", "test", "-t", "One"]
+        )
+        assert result.exit_code == 1
+        assert "single file" in result.output
+
+
 def test_no_profiles_is_a_clean_error(monkeypatch):
     monkeypatch.setattr(cli, "_profiles", lambda: {})
     result = runner.invoke(cli.app, ["status"])

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import shlex
 
 import pytest
 
+from keepsake.core.upload import parse_paths
 from keepsake.storage.base import MediaWriteRefused
 from keepsake.storage.local import LocalDirBucket
-from keepsake.tui.app import NO_TITLE, KeepsakeApp, _length_cell
+from keepsake.tui.app import NO_TITLE, AddScreen, KeepsakeApp, _length_cell
 from keepsake.tui.library import Item, is_spec_date, load_items, save_item, titled
 
 
@@ -481,6 +483,167 @@ class TestFieldHints:
             field.value = "anything at all 05/22/26"
             await pilot.pause()
             assert not field.has_class("-invalid")
+
+
+class TestAddScreen:
+    """Uploading from the TUI, including where the destination field steers."""
+
+    async def test_a_opens_the_add_screen(self, bucket):
+        app = KeepsakeApp([("test", bucket)])
+        async with app.run_test() as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            await pilot.press("a")
+            await pilot.pause()
+            assert isinstance(app.screen, AddScreen)
+
+    async def test_destination_defaults_to_the_dated_layout(self, bucket):
+        app = KeepsakeApp([("test", bucket)])
+        async with app.run_test() as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            await pilot.press("a")
+            await pilot.pause()
+
+            assert app.screen.query_one("#add-into").value == ""
+            hint = str(app.screen.query_one("#add-into-hint").content)
+            assert "recording date" in hint
+
+    async def test_a_lone_slash_warns_about_the_bucket_root(self, bucket):
+        app = KeepsakeApp([("test", bucket)])
+        async with app.run_test() as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            await pilot.press("a")
+            await pilot.pause()
+
+            app.screen.query_one("#add-into").value = "/"
+            await pilot.pause()
+
+            hint = str(app.screen.query_one("#add-into-hint").content)
+            assert "bucket root" in hint
+            # Discouraged, never blocked. SPEC allows it.
+            assert not app.screen.query_one("#upload").disabled
+
+    async def test_preview_resolves_the_real_dated_key(self, bucket, tmp_path):
+        """Not "somewhere dated" -- the key the file will actually get."""
+        from datetime import datetime, timezone
+
+        from test_moov import movie, mvhd_v0, seconds_since_1904
+
+        source = tmp_path / "incoming"
+        source.mkdir()
+        clip = source / "tape.mov"
+        stamp = seconds_since_1904(datetime(2019, 3, 7, tzinfo=timezone.utc))
+        clip.write_bytes(movie(mvhd_v0(creation=stamp, duration=600)).getvalue())
+
+        app = KeepsakeApp([("test", bucket)])
+        async with app.run_test() as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            await pilot.press("a")
+            await pilot.pause()
+
+            app.screen.query_one("#add-paths").value = str(clip)
+            await pilot.pause()
+
+            preview = str(app.screen.query_one("#add-preview").content)
+            assert "2019/03/tape.mov" in preview
+            assert "recorded 2019-03-07" in preview
+
+    async def test_preview_flags_a_file_with_no_readable_date(self, bucket, tmp_path):
+        from test_moov import movie, mvhd_v0
+
+        source = tmp_path / "incoming"
+        source.mkdir()
+        clip = source / "undated.mov"
+        clip.write_bytes(movie(mvhd_v0(creation=0, duration=600)).getvalue())
+
+        app = KeepsakeApp([("test", bucket)])
+        async with app.run_test() as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            await pilot.press("a")
+            await pilot.pause()
+
+            app.screen.query_one("#add-paths").value = str(clip)
+            await pilot.pause()
+
+            preview = str(app.screen.query_one("#add-preview").content)
+            assert "no date in file, filed under today" in preview
+
+    async def test_offers_the_prefixes_the_library_already_uses(self, bucket):
+        app = KeepsakeApp([("test", bucket)])
+        async with app.run_test() as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert app.known_prefixes("test") == ["2026/05/"]
+
+    async def test_uploading_adds_the_file_to_the_list(self, bucket, tmp_path):
+        source = tmp_path / "incoming"
+        source.mkdir()
+        clip = source / "new-clip.mov"
+        clip.write_bytes(b"z" * 300)
+
+        app = KeepsakeApp([("test", bucket)])
+        # Big enough that the dialog's buttons are on screen for the click.
+        async with app.run_test(size=(100, 40)) as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert app.query_one("#items").row_count == 2
+
+            await pilot.press("a")
+            await pilot.pause()
+            app.screen.query_one("#add-paths").value = str(clip)
+            app.screen.query_one("#add-into").value = "2026/08/"
+            await pilot.pause()
+
+            await pilot.click("#upload")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            assert app.query_one("#items").row_count == 3
+
+        assert bucket.get("2026/08/new-clip.mov") == b"z" * 300
+        assert json.loads(bucket.get("2026/08/new-clip.mov.json"))["file"] == "new-clip.mov"
+
+    async def test_a_refused_file_does_not_dismiss_or_write(self, bucket, tmp_path):
+        """A name with no extension cannot be catalogued, so it never lands."""
+        source = tmp_path / "incoming"
+        source.mkdir()
+        bad = source / "no-extension"
+        bad.write_bytes(b"z" * 300)
+
+        app = KeepsakeApp([("test", bucket)])
+        async with app.run_test(size=(100, 40)) as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            await pilot.press("a")
+            await pilot.pause()
+            app.screen.query_one("#add-paths").value = str(bad)
+            await pilot.pause()
+
+            await pilot.click("#upload")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            assert app.query_one("#items").row_count == 2
+
+        assert bucket.head("no-extension") is None
+
+    async def test_drag_and_dropped_paths_are_unquoted(self, tmp_path):
+        """Finder pastes shell-quoted paths; a space must survive the trip."""
+        spaced = tmp_path / "My Movies"
+        spaced.mkdir()
+        clip = spaced / "day one.mov"
+        clip.write_bytes(b"x" * 64)
+
+        assert parse_paths(shlex.quote(str(clip))) == [clip]
+        assert parse_paths(str(clip).replace(" ", "\\ ")) == [clip]
 
 
 @pytest.mark.parametrize(

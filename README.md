@@ -8,13 +8,15 @@ one implementation of it, in Python. Tested against Backblaze B2.
 
 ## Safety model
 
-> The write surface is exactly three things: the root `index.json`,
+> **This tool may create new media. It may never overwrite or delete it.**
+> Everything else it writes is one of three things: the root `index.json`,
 > `{media}.json` sidecars, and `{media}.{jpg,png,webp}` thumbnails.
-> **Everything else in the bucket is media and is read-only.**
 
-Enforced at one chokepoint in `storage/base.py`: `put()` and `delete()` reject
+Enforced at one chokepoint in `storage/base.py`. `put()` and `delete()` reject
 any key that isn't a companion, unless the caller passes `allow_media=True`,
-which no command sets. No other code path can reach a media file.
+which no command sets. `put_media()` is the single door to a media key, and it
+opens one way: it refuses a key that already exists, so a filename collision is
+an error rather than a silent loss. No other code path can reach a media file.
 
 Back that up at the credential layer — see key capabilities below. Two
 independent layers, and the one B2 enforces is the one that actually matters.
@@ -23,8 +25,9 @@ This means the tool implements a deliberate **subset** of SPEC.md's
 "Delete order": steps 1–2 (sidecar, thumbnail) yes, step 3 (the media file)
 never.
 
-Commands that write take `--apply`. Without it they print exactly what they
-would do and touch nothing.
+`sync` writes only with `--apply`. Without it it prints exactly what it would
+do and touches nothing. `add` names the files you meant, so it inverts that:
+it shows the plan, asks once, and takes `--dry-run` to stop at the plan.
 
 ## Setup
 
@@ -76,15 +79,33 @@ narrows it to one.
 
 ## Commands
 
-Five verbs, matching the things you actually want to do:
+A verb for each thing you actually want to do:
 
 | | |
 |---|---|
 | `keepsake profiles` | Can I reach my buckets? |
 | `keepsake status` | What is in my libraries, and are they healthy? |
 | `keepsake sync` | Make them match the convention. |
-| `keepsake edit` | Fill in titles, dates, tags, and notes. |
+| `keepsake add` | Put new files in. |
+| `keepsake set` | Fill in titles, dates, tags, and notes. |
+| `keepsake edit` | ...or the same, in a terminal UI. |
 | `keepsake version` | |
+
+**Either front end finishes the job on its own.** Pick whichever suits:
+
+```sh
+# all shell, never opens a UI
+uv run keepsake add ~/transfers/*.mov -p rex --no-edit
+uv run keepsake set recital.mov -p rex --title "Spring Recital" --tags piano,school
+
+# all TUI: press `a` to upload, then type the titles in place
+uv run keepsake edit -p rex
+```
+
+`add` ends by opening the editor on what it just wrote, because a title is
+easiest to type while you still remember what the file was. That is a
+convenience, not a step — `--no-edit` skips it, and giving `--title` skips it
+too.
 
 ```sh
 uv run keepsake profiles --verify   # list profiles, reach each bucket
@@ -92,6 +113,8 @@ uv run keepsake profiles --verify   # list profiles, reach each bucket
 uv run keepsake status              # survey + findings, every library
 uv run keepsake sync                # show every change it would make
 uv run keepsake sync --apply        # write them
+uv run keepsake add clip.mov -p rex # upload, with a sidecar
+uv run keepsake set clip.mov -p rex -t "Title"   # metadata from the shell
 uv run keepsake edit                # terminal UI over every library
 
 uv run keepsake status -p jane      # ...or narrow any of them to one
@@ -110,15 +133,115 @@ Adding videos to any bucket later, by any means, is followed by one command:
 uv run keepsake sync --apply
 ```
 
+### `keepsake add`
+
+Uploads files that did not arrive by other means — digitised home movies,
+camcorder transfers, DSLR footage. Phone video is already handled by whatever
+puts it in the bucket; `sync` adopts that.
+
+```sh
+uv run keepsake add ~/Movies/recital.mov -p rex -t "Spring Recital"
+uv run keepsake add ~/transfers/*.mov -p rex          # a batch
+uv run keepsake add tape.mov -p rex --into home-movies
+uv run keepsake add tape.mov -p rex --dry-run         # plan only
+```
+
+Files land in **`YYYY/MM/` taken from the video's own recording date**, read
+out of the QuickTime/MP4 header. A tape digitised today but shot in 2019 is
+filed under `2019/03/`, not under this month. The same header supplies
+`duration_s`, so the `length` column starts showing runtimes.
+
+`--into` overrides the layout. `--into /` puts files at the bucket root, which
+is allowed but warned about — a root full of loose videos next to `index.json`
+is not something anyone chooses on purpose.
+
+Every refusal happens in the plan, before a byte moves, and is printed beside
+the files that will upload. The plan ends with a verdict rather than leaving
+you to infer one from the absence of red:
+
+```
+$ keepsake add ~/transfers/*.mov -p rex --dry-run
+
+rex -> feng-media-rex
+
+  + 2019/03/recital.mov     1.2 GB   6:52  recorded 2019-03-07
+  + 2026/08/IMG_7901.MOV   21.9 MB   0:15  no date in file, filed under today
+  ! wedding-4k.mov
+      6.4 GB, over the 5 GB single-upload limit. keepsake uploads in one
+      request, so this file cannot be sent as-is -- split or transcode it first
+
+2 files ready (1.2 GB), 1 refused.
+nothing written. re-run without --dry-run to upload the rest.
+```
+
+Each row says where its date came from, because otherwise the two `2026/08/`
+cases are indistinguishable: a video actually shot this month, and a video
+whose header held no date so today's was used. Only the second is worth a
+second look. With no refusals the plan ends `no problems found.` and exits 0.
+
+Refused for: no file extension (SPEC requires one), a key already taken, a key
+differing from an existing one only in case, a name shaped like a companion
+key, or over the ceiling. One bad file never stops the rest, and the exit code
+is non-zero if anything was refused.
+
+`add` writes to exactly one library, so `-p` is required when you have several.
+It and `set` are the exceptions to the "all libraries by default" rule — for a
+command that writes, omitting the flag is an error rather than an instruction.
+
+After a successful upload it opens the editor on exactly what it just wrote, so
+you can type the titles while you still remember what the files were. That is a
+convenience, not a step: `--no-edit` skips it, giving `--title` skips it, and
+`keepsake set` can fill the same fields later from the shell.
+
+### `keepsake set`
+
+The shell half of metadata editing, so an upload never has to hand off to a UI.
+
+```sh
+uv run keepsake set recital.mov -p rex --title "Spring Recital"
+uv run keepsake set recital.mov tape2.mov -p rex --tags camcorder-transfer
+uv run keepsake set recital.mov -p rex --title ""        # clear a field
+```
+
+```
+rex -> feng-media-rex
+
+  2019/03/recital.mov
+      title       — → Spring Recital
+      tags        — → piano, school
+
+wrote 1 sidecar, rebuilt index.json (957 B)
+```
+
+A bare filename resolves to its key as long as it names one file; an ambiguous
+one lists the candidates instead of guessing. `--title` names a single file,
+since twenty files cannot share one title; the other fields apply to as many as
+you list, which is how you tag a batch.
+
+An empty string clears a field, removing it from the sidecar rather than
+writing a null. An off-spec `--recorded-at` is refused outright — SPEC requires
+`YYYY-MM-DD`, and the archive should read the same everywhere, forever.
+
+Writes go through the same merge-on-save as the TUI: the stored sidecar is
+re-read and only the fields you named are applied, so a concurrent edit to some
+other field survives.
+
 ### `keepsake edit`
 
 Every library in one list on the left, a form on the right. Arrow through,
 type, save. With more than one library open, a `library` column shows which
 bucket each video lives in, and a save goes back to that bucket.
 
+Press `a` to upload from inside the editor. Drag files from Finder straight
+into the terminal — they paste as quoted paths, which the dialog understands,
+along with `~` and globs. The destination field defaults to the dated layout,
+shows the prefixes your library already uses, and warns if you point it at the
+bucket root.
+
 The `length` column shows the runtime when the sidecar records `duration_s`,
 and falls back to file size — dimmed, so the two read apart — when it does
-not. Nothing populates `duration_s` yet, so in practice it shows sizes.
+not. `add` fills `duration_s` from the file's header; videos adopted by `sync`
+have no runtime recorded yet, so those rows still show sizes.
 
 ```
 ┌─ 2 libraries ────────────────────────────┬─ IMG_0002.MOV ──────────┐
@@ -182,6 +305,11 @@ or path. A path like `2026/05/IMG_0002.MOV` implies a year and a month, but
 SPEC.md requires `YYYY-MM-DD`, and inventing a day would put a fact in the
 archive that nobody established. An absent field is easy to fill in later; a
 wrong one looks authoritative forever.
+
+`add` has the file itself rather than just a listing, so it records more:
+`sha256` (computed on a second local read — nearly free now, expensive forever
+after), plus `recorded_at` and `duration_s` when the header supplies them.
+`title` is still the one field only a person can fill.
 
 ## Backblaze notes
 

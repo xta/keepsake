@@ -117,15 +117,25 @@ class Item:
             self.changed.add(name)
 
 
-def load_items(sources: Sequence[Source], prefix: str = "") -> list[Item]:
+def load_items(
+    sources: Sequence[Source],
+    prefix: str = "",
+    only: set[str] | None = None,
+) -> list[Item]:
     """Every media file with a readable sidecar, across every open library.
 
     Sorted by profile then key, so one library's videos stay together.
+
+    `only` narrows the list to specific media keys, which is what `keepsake
+    add` opens the editor with: after uploading four files you want to title
+    those four, not scroll a library of hundreds looking for them.
     """
     items: list[Item] = []
     for profile, bucket in sources:
         result = classify(bucket.list(prefix))
         for media_key, sidecar_key in sorted(result.media.items()):
+            if only is not None and media_key not in only:
+                continue
             try:
                 payload = json.loads(bucket.get(sidecar_key))
             except (KeyError, json.JSONDecodeError):

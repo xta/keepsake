@@ -9,9 +9,9 @@ from __future__ import annotations
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterator
+from typing import BinaryIO, Callable, Iterator
 
-from keepsake.storage.base import GuardedBucket, Obj
+from keepsake.storage.base import GuardedBucket, Obj, ProgressReader
 
 
 class LocalDirBucket(GuardedBucket):
@@ -66,6 +66,22 @@ class LocalDirBucket(GuardedBucket):
         path = self._path(key)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
+
+    def put_media(
+        self,
+        key: str,
+        source: BinaryIO,
+        content_type: str | None = None,
+        *,
+        size: int,
+        progress: Callable[[int], None] | None = None,
+    ) -> None:
+        self._guard_media_create(key, size)
+        path = self._path(key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        reader = ProgressReader(source, progress)
+        with path.open("wb") as out:
+            shutil.copyfileobj(reader, out)
 
     def delete(self, key: str, *, allow_media: bool = False) -> None:
         self._guard(key, allow_media)

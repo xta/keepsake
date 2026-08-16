@@ -59,6 +59,52 @@ def rfc3339(moment: datetime) -> str:
     return moment.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def sidecar_payload(
+    *,
+    filename: str,
+    new_id: str,
+    uploaded_at: str,
+    size_bytes: int | None = None,
+    media_type: str | None = None,
+    thumbnail: str | None = None,
+    title: str | None = None,
+    recorded_at: str | None = None,
+    duration_s: float | None = None,
+    sha256: str | None = None,
+) -> dict[str, Any]:
+    """Build a sidecar body. The one place either writer constructs one.
+
+    Adoption and upload learn different amounts about a file -- adoption knows
+    only what the bucket listing says, while upload has the file itself and can
+    read its header and hash it -- but both must produce the same shape, in the
+    same field order, or two sidecars written a minute apart would diff for no
+    reason. Optional fields stay absent rather than null: SPEC.md's required
+    set is the four machine facts, and an absent field is honest where an empty
+    one is noise.
+    """
+    payload: dict[str, Any] = {
+        "schema": SCHEMA_VERSION,
+        "id": new_id,
+        "file": filename,
+    }
+    if title:
+        payload["title"] = title
+    if recorded_at:
+        payload["recorded_at"] = recorded_at
+    payload["uploaded_at"] = uploaded_at
+    if duration_s is not None:
+        payload["duration_s"] = duration_s
+    if size_bytes is not None:
+        payload["size_bytes"] = size_bytes
+    if media_type:
+        payload["media_type"] = media_type
+    if sha256:
+        payload["sha256"] = sha256
+    if thumbnail:
+        payload["thumbnail"] = thumbnail
+    return payload
+
+
 @dataclass
 class Stub:
     media_key: str
@@ -92,31 +138,23 @@ def plan(
             continue
         obj = result.objects[media_key]
 
-        payload: dict[str, Any] = {
-            "schema": SCHEMA_VERSION,
-            "id": new_id(),
-            "file": media_key.rsplit("/", 1)[-1],
-        }
-        # `uploaded_at` is when the object landed in the bucket, which is what
-        # the field means. For files put here by other means it is the closest
-        # true answer available.
-        if obj.last_modified is not None:
-            payload["uploaded_at"] = rfc3339(obj.last_modified)
-        else:
-            payload["uploaded_at"] = rfc3339(datetime.now(timezone.utc))
-        payload["size_bytes"] = obj.size
-
-        media_type = guess_media_type(media_key)
-        if media_type:
-            payload["media_type"] = media_type
-
         # Classification recognises a thumbnail before its media has a sidecar,
         # so when one is already sitting there the stub can record it instead
         # of leaving the field blank on a file whose thumbnail exists.
         thumbnail = result.thumbnails.get(media_key)
-        if thumbnail:
+
+        payload = sidecar_payload(
+            filename=media_key.rsplit("/", 1)[-1],
+            new_id=new_id(),
+            # `uploaded_at` is when the object landed in the bucket, which is
+            # what the field means. For files put here by other means it is the
+            # closest true answer available.
+            uploaded_at=rfc3339(obj.last_modified or datetime.now(timezone.utc)),
+            size_bytes=obj.size,
+            media_type=guess_media_type(media_key),
             # SPEC.md: filename relative to the sidecar's own directory.
-            payload["thumbnail"] = thumbnail.rsplit("/", 1)[-1]
+            thumbnail=thumbnail.rsplit("/", 1)[-1] if thumbnail else None,
+        )
 
         stubs.append(
             Stub(

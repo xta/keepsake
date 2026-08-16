@@ -18,10 +18,10 @@ Every B2-specific workaround lives in this file. Two matter:
 
 from __future__ import annotations
 
-from typing import Any, Iterator
+from typing import Any, BinaryIO, Callable, Iterator
 from urllib.parse import urlparse
 
-from keepsake.storage.base import GuardedBucket, Obj
+from keepsake.storage.base import GuardedBucket, Obj, ProgressReader
 
 
 def region_from_endpoint(endpoint: str) -> str | None:
@@ -143,6 +143,35 @@ class B2Bucket(GuardedBucket):
         self._guard(key, allow_media)
         extra = {"ContentType": content_type} if content_type else {}
         self._client.put_object(Bucket=self.name, Key=key, Body=data, **extra)
+
+    def put_media(
+        self,
+        key: str,
+        source: BinaryIO,
+        content_type: str | None = None,
+        *,
+        size: int,
+        progress: Callable[[int], None] | None = None,
+    ) -> None:
+        """Stream a new media file up in a single request.
+
+        Deliberately `put_object` rather than `upload_fileobj`: the managed
+        path runs through s3transfer, which is exactly where `when_required`
+        checksums are not honoured (see this module's header). One request also
+        means one failure mode -- it either lands or it does not.
+
+        `ContentLength` is passed explicitly because a wrapped file object has
+        no length botocore can discover.
+        """
+        self._guard_media_create(key, size)
+        extra = {"ContentType": content_type} if content_type else {}
+        self._client.put_object(
+            Bucket=self.name,
+            Key=key,
+            Body=ProgressReader(source, progress),
+            ContentLength=size,
+            **extra,
+        )
 
     def delete(self, key: str, *, allow_media: bool = False) -> None:
         self._guard(key, allow_media)

@@ -5,6 +5,11 @@ archive worth keeping -- title, date, tags, location, notes -- can only come
 from a person, and typing them one CLI invocation at a time is why the files
 are still called IMG_0002.MP4.
 
+`a` uploads (see AddScreen), so this is a complete front end rather than the
+second half of one: files in, titles typed, catalog rebuilt on the way out.
+The CLI is equally complete on its own via `add` and `set`. Neither should
+require the other.
+
 Bucket calls run in thread workers so the interface never blocks on B2.
 """
 
@@ -19,11 +24,32 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.validation import Regex
 from rich.text import Text
-from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Static
+from textual.widgets import (
+    Button,
+    DataTable,
+    Footer,
+    Header,
+    Input,
+    Label,
+    ProgressBar,
+    Select,
+    Static,
+)
+from ulid import ULID
 
 from keepsake.core import index as index_mod
 from keepsake.core.classify import classify
+from keepsake.core.moov import read_movie_header_at
 from keepsake.core.survey import compact_bytes, human_bytes, human_duration
+from keepsake.core.upload import (
+    Candidate,
+    PrefixError,
+    dated_prefix,
+    normalize_prefix,
+    parse_paths,
+    plan_uploads,
+    upload_all,
+)
 from keepsake.tui.library import (
     EDITABLE,
     FIELD_HINTS,
@@ -46,9 +72,10 @@ THEME = "tokyo-night"
 def _length_cell(item: Item) -> Text:
     """Runtime when the sidecar records one, file size otherwise.
 
-    `duration_s` is optional in SPEC.md and nothing populates it yet, so most
-    rows fall back to size. Size is dimmed to keep the two readable apart --
-    one is how long the video is, the other is merely how big.
+    `duration_s` is optional in SPEC.md. Files put here by `add` carry one,
+    read from their own header; files adopted by `sync` do not yet, so a
+    library holds a mix. Size is dimmed to keep the two readable apart -- one
+    is how long the video is, the other is merely how big.
     """
     runtime = human_duration(item.payload.get("duration_s"))
     if runtime:
@@ -89,6 +116,227 @@ class ConfirmQuit(ModalScreen[str]):
     @on(Button.Pressed)
     def _button(self, event: Button.Pressed) -> None:
         self.dismiss(event.button.id or "cancel")
+
+
+class AddScreen(ModalScreen[tuple[str, list[str]]]):
+    """Upload files into a library. Dismisses with (profile, keys written).
+
+    The destination prefix is a field rather than a hidden default, because a
+    bucket where everything landed at the root is not something anyone chooses
+    -- it is what happens when nobody is asked. Leaving it blank means the
+    dated layout; the root takes a deliberate `/`.
+    """
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+
+    def __init__(self, sources: Sequence[Source], default_profile: str, known_prefixes):
+        super().__init__()
+        self.sources = list(sources)
+        self.profile = default_profile
+        self.known_prefixes = list(known_prefixes)
+        self.candidates: list[Candidate] = []
+        self._uploading = False
+
+    @property
+    def bucket(self):
+        return dict(self.sources)[self.profile]
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="add-dialog"):
+            yield Label("[b]Add media[/]", id="add-heading")
+
+            if len(self.sources) > 1:
+                yield Label("library", classes="field-label")
+                yield Select(
+                    [(name, name) for name, _ in self.sources],
+                    value=self.profile,
+                    allow_blank=False,
+                    id="add-library",
+                )
+
+            yield Label("files", classes="field-label")
+            yield Input(
+                id="add-paths",
+                placeholder="drag files in, or type a path or glob",
+            )
+
+            yield Label("destination", classes="field-label")
+            yield Input(id="add-into", placeholder="YYYY/MM/ from each file's date")
+            yield Label("", id="add-into-hint")
+
+            yield Static(id="add-preview")
+            yield ProgressBar(id="add-progress", show_eta=False)
+            with Horizontal(id="dialog-buttons"):
+                yield Button("Upload", variant="primary", id="upload")
+                yield Button("Cancel", id="cancel")
+
+    def on_mount(self) -> None:
+        self.query_one("#add-progress", ProgressBar).display = False
+        self._describe_destination()
+        self.query_one("#add-paths", Input).focus()
+
+    # ------------------------------------------------------------- previewing
+
+    def _destination(self) -> str | None:
+        """The typed prefix, or None for the dated layout. Raises PrefixError."""
+        return normalize_prefix(self.query_one("#add-into", Input).value)
+
+    def _describe_destination(self) -> None:
+        """Say where files will land, and warn when that is the bucket root."""
+        hint = self.query_one("#add-into-hint", Label)
+        try:
+            prefix = self._destination()
+        except PrefixError as exc:
+            hint.update(f"[red]{exc}[/]")
+            return
+
+        if prefix is None:
+            example = dated_prefix(None)
+            known = "  ".join(self.known_prefixes[:6])
+            text = f"[dim]{example} — from each file's recording date[/]"
+            if known:
+                text += f"\n[dim]in this library: {known}[/]"
+            hint.update(text)
+        elif prefix == "":
+            hint.update(
+                "[yellow]files will sit at the bucket root[/]\n"
+                "[dim]loose alongside index.json, not in a dated folder[/]"
+            )
+        else:
+            hint.update(f"[dim]files will land in {prefix}[/]")
+
+    @on(Input.Changed)
+    def _input_changed(self, event: Input.Changed) -> None:
+        if event.input.id == "add-into":
+            self._describe_destination()
+        self._preview()
+
+    @on(Select.Changed, "#add-library")
+    def _library_changed(self, event: Select.Changed) -> None:
+        self.profile = str(event.value)
+
+    def _preview(self) -> None:
+        """A local-only preview. The bucket is not consulted until Upload.
+
+        Checking `head` on every keystroke would put a request on B2 for each
+        character typed, so the preview shows what can be known from the
+        filesystem and the plan proper runs once, in the worker.
+        """
+        paths = parse_paths(self.query_one("#add-paths", Input).value)
+        preview = self.query_one("#add-preview", Static)
+        if not paths:
+            preview.update("")
+            return
+
+        try:
+            prefix = self._destination()
+        except PrefixError:
+            preview.update("")
+            return
+
+        lines = []
+        for path in paths[:12]:
+            if not path.is_file():
+                lines.append(f"[red]![/] {path.name}  [red]no such file[/]")
+                continue
+            size = compact_bytes(path.stat().st_size)
+            note = ""
+            if prefix is not None:
+                where = prefix
+            else:
+                # Reading the header is two seeks on a local file, so the
+                # preview can show the key each file will really get rather
+                # than an evasive "somewhere dated".
+                header = read_movie_header_at(path)
+                recorded = header.recorded_at if header else None
+                where = dated_prefix(recorded)
+                # Without this a video shot this month and a video with no
+                # readable date land in the same folder and look identical.
+                note = (
+                    f"  [dim]recorded {recorded}[/]"
+                    if recorded
+                    else "  [yellow]no date in file, filed under today[/]"
+                )
+            lines.append(f"[green]+[/] {where}{path.name}  [dim]{size}[/]{note}")
+        if len(paths) > 12:
+            lines.append(f"[dim]… and {len(paths) - 12} more[/]")
+        preview.update("\n".join(lines))
+
+    # -------------------------------------------------------------- uploading
+
+    @on(Button.Pressed, "#cancel")
+    def _cancel(self) -> None:
+        self.action_cancel()
+
+    def action_cancel(self) -> None:
+        if not self._uploading:
+            self.dismiss((self.profile, []))
+
+    @on(Button.Pressed, "#upload")
+    def _upload_pressed(self) -> None:
+        if self._uploading:
+            return
+        paths = parse_paths(self.query_one("#add-paths", Input).value)
+        if not paths:
+            self.notify("no files given", severity="warning")
+            return
+        try:
+            into = self.query_one("#add-into", Input).value
+            normalize_prefix(into)
+        except PrefixError as exc:
+            self.notify(str(exc), severity="error")
+            return
+
+        self._uploading = True
+        self.query_one("#upload", Button).disabled = True
+        self.query_one("#add-progress", ProgressBar).display = True
+        self._run_upload(paths, into)
+
+    @work(thread=True)
+    def _run_upload(self, paths, into: str) -> None:
+        """Preflight and upload off the UI thread, as every bucket call is."""
+        bucket = self.bucket
+        candidates = plan_uploads(paths, bucket, into=into)
+        viable = [c for c in candidates if c.ok]
+        refused = [c for c in candidates if not c.ok]
+
+        for candidate in refused:
+            self.app.call_from_thread(
+                self.notify, f"{candidate.name}: {candidate.problem}", severity="error"
+            )
+        if not viable:
+            self.app.call_from_thread(self._done, [])
+            return
+
+        total = sum(c.size for c in viable)
+        done = 0
+
+        def on_progress(candidate: Candidate, seen: int) -> None:
+            self.app.call_from_thread(self._set_progress, done + seen, total, candidate.name)
+
+        written: list[str] = []
+        for candidate in viable:
+            keys, failures = upload_all(
+                bucket, [candidate], new_id=lambda: str(ULID()), progress=on_progress
+            )
+            written.extend(keys)
+            for failed, reason in failures:
+                self.app.call_from_thread(
+                    self.notify, f"{failed.name}: {reason}", severity="error"
+                )
+            done += candidate.size
+
+        self.app.call_from_thread(self._done, written)
+
+    def _set_progress(self, done: int, total: int, name: str) -> None:
+        bar = self.query_one("#add-progress", ProgressBar)
+        bar.update(total=total, progress=done)
+        self.query_one("#add-heading", Label).update(f"[b]Uploading[/] [dim]{name}[/]")
+
+    def _done(self, written: list[str]) -> None:
+        if written:
+            self.notify(f"uploaded {len(written)} file{'' if len(written) == 1 else 's'}")
+        self.dismiss((self.profile, written))
 
 
 class MediaTable(DataTable):
@@ -134,6 +382,7 @@ class KeepsakeApp(App):
 
     BINDINGS = [
         Binding("ctrl+s", "save", "Save"),
+        Binding("a", "add_media", "Add files"),
         Binding("o", "open_media", "Open in player"),
         Binding("u", "toggle_untitled", "Untitled only"),
         Binding("escape", "focus_list", "Back to list"),
@@ -146,10 +395,18 @@ class KeepsakeApp(App):
         Binding("ctrl+o", "open_media", "Open in player", show=False),
     ]
 
-    def __init__(self, sources: Sequence[Source], prefix: str = ""):
+    def __init__(
+        self,
+        sources: Sequence[Source],
+        prefix: str = "",
+        only: set[str] | None = None,
+    ):
         super().__init__()
         self.sources = list(sources)
         self.prefix = prefix
+        #: When set, show only these media keys -- `keepsake add` opens the
+        #: editor on exactly what it just uploaded.
+        self.only = only
         self.items: list[Item] = []
         self.untitled_only = False
         self._current: Item | None = None
@@ -212,13 +469,24 @@ class KeepsakeApp(App):
     # ------------------------------------------------------------------ load
 
     @work(thread=True)
-    def _load(self) -> None:
-        items = load_items(self.sources, self.prefix)
-        self.call_from_thread(self._populate, items)
+    def _load(self, focus_key: str | None = None) -> None:
+        items = load_items(self.sources, self.prefix, self.only)
+        self.call_from_thread(self._populate, items, focus_key)
 
-    def _populate(self, items: list[Item]) -> None:
+    def _populate(self, items: list[Item], focus_key: str | None = None) -> None:
         self.items = items
         self._refill()
+        if focus_key is not None:
+            self._focus_media(focus_key)
+
+    def _focus_media(self, media_key: str) -> None:
+        """Put the cursor on a media key and open its title for typing."""
+        table = self.query_one("#items", DataTable)
+        for row, item in enumerate(self._visible()):
+            if item.media_key == media_key:
+                table.move_cursor(row=row)
+                self.query_one(f"#field-{EDITABLE[0]}", Input).focus()
+                return
 
     def _visible(self) -> list[Item]:
         if self.untitled_only:
@@ -336,6 +604,44 @@ class KeepsakeApp(App):
             self.notify(f"could not open: {exc}", severity="error")
         else:
             self.notify(f"opening {self._current.name}")
+
+    def known_prefixes(self, profile: str) -> list[str]:
+        """Prefixes this library already uses, most populated first.
+
+        Drawn from the items already loaded, so offering them costs nothing.
+        It answers "where does everything else live?" without making anyone
+        guess, which is most of what keeps a library from sprawling.
+        """
+        counts: dict[str, int] = {}
+        for item in self.items:
+            if item.profile != profile or "/" not in item.media_key:
+                continue
+            prefix = item.media_key.rsplit("/", 1)[0] + "/"
+            counts[prefix] = counts.get(prefix, 0) + 1
+        return sorted(counts, key=lambda p: (-counts[p], p))
+
+    def action_add_media(self) -> None:
+        if not self.sources:
+            return
+        profile = self._current.profile if self._current else self.sources[0][0]
+        self.push_screen(
+            AddScreen(self.sources, profile, self.known_prefixes(profile)),
+            self._added,
+        )
+
+    def _added(self, result: tuple[str, list[str]] | None) -> None:
+        """Reload so the new files appear, and land on the first one's title."""
+        if not result:
+            return
+        profile, written = result
+        if not written:
+            return
+        # That library's catalog is now stale. Marking it here means the
+        # rebuild already running on the way out covers the upload too.
+        self._wrote.add(profile)
+        if self.only is not None:
+            self.only = self.only | set(written)
+        self._load(focus_key=written[0])
 
     def action_focus_list(self) -> None:
         self.query_one("#items", DataTable).focus()
