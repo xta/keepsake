@@ -79,7 +79,7 @@ One JSON file per media file, named `{filename}.json`. This is the source of tru
 ```json
 {
   "schema": 1,
-  "id": "01HQ8XKPZR4M2N7QVWJT3YFBCD",
+  "id": "01a0098c-ebfd-7e9f-bac0-ca39f3495b09",
   "file": "piano-recital.mp4",
   "title": "Spring Recital",
   "recorded_at": "2026-04-12",
@@ -100,7 +100,7 @@ One JSON file per media file, named `{filename}.json`. This is the source of tru
 | Field | Type | Notes |
 |---|---|---|
 | `schema` | integer | Format version. Currently `1`. |
-| `id` | string | ULID. Stable identity for this media file. Never changes, even if the file is renamed or moved. |
+| `id` | string | Stable identity for this media file. Never changes, even if the file is renamed or moved. Opaque: readers must not parse it. Writers should emit a UUID version 7 ([RFC 9562](https://www.rfc-editor.org/rfc/rfc9562)); earlier libraries emitted ULIDs, and both remain valid. |
 | `file` | string | Filename relative to the sidecar's own directory. Advisory; see Key vs. contents. |
 | `uploaded_at` | string | RFC 3339 timestamp. |
 

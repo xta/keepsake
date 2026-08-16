@@ -35,7 +35,6 @@ from textual.widgets import (
     Select,
     Static,
 )
-from ulid import ULID
 
 from keepsake.core import index as index_mod
 from keepsake.core.classify import classify
@@ -50,6 +49,7 @@ from keepsake.core.upload import (
     plan_uploads,
     upload_all,
 )
+from keepsake.models import new_id
 from keepsake.tui.library import (
     EDITABLE,
     FIELD_HINTS,
@@ -317,7 +317,7 @@ class AddScreen(ModalScreen[tuple[str, list[str]]]):
         written: list[str] = []
         for candidate in viable:
             keys, failures = upload_all(
-                bucket, [candidate], new_id=lambda: str(ULID()), progress=on_progress
+                bucket, [candidate], new_id=new_id, progress=on_progress
             )
             written.extend(keys)
             for failed, reason in failures:

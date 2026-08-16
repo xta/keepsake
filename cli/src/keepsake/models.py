@@ -8,11 +8,32 @@ construct a sidecar from scratch when round-tripping one we read.
 
 from __future__ import annotations
 
+import os
+import time
+import uuid
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 SCHEMA_VERSION = 1
+
+
+def new_id() -> str:
+    """A fresh sidecar `id`: UUID version 7, per RFC 9562.
+
+    Hand-rolled because `uuid.uuid7` arrives in Python 3.14 and we target 3.11+.
+    It is eight lines and the layout is fixed by the RFC, which beats taking a
+    dependency for it -- and an archive meant to outlive its tools is better off
+    resting on a published standard than on any one library.
+
+    Time-ordered, though nothing here depends on that: SPEC.md treats `id` as
+    opaque, and `index.json` sorts by path.
+    """
+    stamp = time.time_ns() // 1_000_000
+    raw = bytearray(stamp.to_bytes(6, "big") + os.urandom(10))
+    raw[6] = (raw[6] & 0x0F) | 0x70  # version 7
+    raw[8] = (raw[8] & 0x3F) | 0x80  # variant 10xx
+    return str(uuid.UUID(bytes=bytes(raw)))
 
 
 class Sidecar(BaseModel):

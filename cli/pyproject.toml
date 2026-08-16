@@ -10,7 +10,6 @@ dependencies = [
     "pydantic>=2.9",
     "typer>=0.15",
     "python-dotenv>=1.0",
-    "python-ulid>=3.0",
     "rich>=13.0",
     "textual>=1.0",
 ]

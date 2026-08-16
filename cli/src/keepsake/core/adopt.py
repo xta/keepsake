@@ -123,7 +123,7 @@ def plan(
 ) -> list[Stub]:
     """Stubs that would be written, for every unindexed media file.
 
-    `new_id` is injected so tests can pin identifiers; production passes a ULID
+    `new_id` is injected so tests can pin identifiers; production passes a UUIDv7
     factory.
 
     Keys whose extension is not recognised media are skipped by default, so a

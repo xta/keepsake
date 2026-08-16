@@ -35,7 +35,6 @@ from rich.padding import Padding
 from rich.progress import BarColumn, DownloadColumn, Progress, TextColumn, TransferSpeedColumn
 from rich.table import Table
 from rich.text import Text
-from ulid import ULID
 
 from keepsake import __version__
 from keepsake.config import (
@@ -50,6 +49,7 @@ from keepsake.core import index as index_mod
 from keepsake.core import upload as upload_mod
 from keepsake.core.classify import classify
 from keepsake.core.survey import human_bytes, human_duration, survey
+from keepsake.models import new_id
 from keepsake.storage.base import INDEX_KEY
 
 app = typer.Typer(
@@ -281,7 +281,7 @@ def sync(
 def _sync_one(prof, bucket, prefix, apply, details, adopt_all=False) -> None:
     result = classify(bucket.list(prefix))
     stubs = adopt_mod.plan(
-        result, new_id=lambda: str(ULID()), include_unrecognised=adopt_all
+        result, new_id=new_id, include_unrecognised=adopt_all
     )
 
     if apply:
@@ -450,7 +450,7 @@ def add(
                     upload_mod.upload_one(
                         bucket,
                         candidate,
-                        new_id=lambda: str(ULID()),
+                        new_id=new_id,
                         title=title,
                         progress=lambda seen, t=task: bar.update(t, completed=seen),
                     )
