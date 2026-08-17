@@ -9,8 +9,33 @@ from keepsake.core import thumbs as thumbs_mod
 from keepsake.core.upload import parse_paths
 from keepsake.storage.base import MediaWriteRefused
 from keepsake.storage.local import LocalDirBucket
-from keepsake.tui.app import NO_TITLE, AddScreen, KeepsakeApp, _length_cell
+from keepsake.tui.app import (
+    IMAGES_AVAILABLE,
+    NO_TITLE,
+    AddScreen,
+    KeepsakeApp,
+    _length_cell,
+    fit_width,
+)
 from keepsake.tui.library import Item, is_spec_date, load_items, save_item, titled
+
+
+def a_jpeg(size: tuple[int, int] = (64, 36)) -> bytes:
+    """A real, decodable JPEG.
+
+    The preview pane hands these to Pillow, so a `b"\\xff\\xd8fake"` stand-in
+    would only ever exercise the failure path.
+    """
+    from io import BytesIO
+
+    from PIL import Image as PILImage
+
+    buffer = BytesIO()
+    PILImage.new("RGB", size, (90, 120, 160)).save(buffer, format="JPEG")
+    return buffer.getvalue()
+
+
+JPEG = a_jpeg()
 
 
 def sidecar(file: str, **extra) -> bytes:
@@ -662,7 +687,7 @@ class TestThumbnailKey:
         monkeypatch.setattr(
             thumbs_mod,
             "render",
-            lambda url, dest, **kw: dest.write_bytes(b"\xff\xd8jpeg"),
+            lambda url, dest, **kw: dest.write_bytes(JPEG),
         )
         monkeypatch.setattr(thumbs_mod, "probe_duration", lambda url, **kw: 222.0)
 
@@ -679,7 +704,7 @@ class TestThumbnailKey:
             table = app.query_one("#items")
             assert table.get_cell(app.items[0].uid, "length").plain == "3:42"
 
-        assert bucket.get("2026/05/IMG_0002.MOV.jpg") == b"\xff\xd8jpeg"
+        assert bucket.get("2026/05/IMG_0002.MOV.jpg") == JPEG
         stored = json.loads(bucket.get("2026/05/IMG_0002.MOV.json"))
         assert stored["thumbnail"] == "IMG_0002.MOV.jpg"
         assert stored["duration_s"] == 222.0
@@ -711,7 +736,7 @@ class TestThumbnailKey:
         monkeypatch.setattr(
             thumbs_mod,
             "render",
-            lambda url, dest, **kw: dest.write_bytes(b"\xff\xd8jpeg"),
+            lambda url, dest, **kw: dest.write_bytes(JPEG),
         )
         monkeypatch.setattr(thumbs_mod, "probe_duration", lambda url, **kw: 222.0)
 
@@ -737,6 +762,199 @@ class TestThumbnailKey:
         stored = json.loads(bucket.get("2026/05/IMG_0002.MOV.json"))
         assert stored["title"] == "Spring concert"
         assert stored["thumbnail"] == "IMG_0002.MOV.jpg"
+
+
+class TestFitWidth:
+    """Sizing the preview so it is letterboxed rather than stretched.
+
+    Terminal cells are twice as tall as they are wide, so `cell` has to be
+    carried through every comparison — that factor of two is precisely the
+    distortion this exists to avoid. 10x20 is what `get_cell_size()` reports
+    on this machine.
+    """
+
+    CELL = (10, 20)
+
+    def rows(self, pixels, width_cells) -> float:
+        """The height the widget will derive from a given width."""
+        image_width, image_height = pixels
+        return (width_cells * self.CELL[0] * image_height) / (image_width * self.CELL[1])
+
+    def test_a_landscape_clip_uses_the_full_width(self):
+        # 640x360 at 40 cells is ~11 rows, comfortably under the cap.
+        assert fit_width((640, 360), 40, self.CELL, max_rows=14) == 40
+
+    def test_a_portrait_clip_is_narrowed_rather_than_squashed(self):
+        """Phone video is the case that forced this. At full pane width a
+        1080x1920 clip would be 35 rows tall and swallow the form."""
+        width = fit_width((1080, 1920), 40, self.CELL, max_rows=14)
+
+        assert width < 40
+        assert self.rows((1080, 1920), width) <= 14
+
+    def test_the_result_keeps_the_aspect_ratio(self):
+        for pixels in ((1920, 1080), (1080, 1920), (640, 640), (720, 480)):
+            width = fit_width(pixels, 40, self.CELL, max_rows=14)
+            assert 0 < width <= 40
+            assert self.rows(pixels, width) <= 14 + 1e-9
+
+    def test_a_square_clip_is_narrowed_too(self):
+        # 1:1 in pixels is 2:1 in cells, so 40 cells wide would be 20 rows.
+        width = fit_width((600, 600), 40, self.CELL, max_rows=14)
+        assert width == 28
+
+    def test_a_narrow_pane_is_never_exceeded(self):
+        assert fit_width((1920, 1080), 12, self.CELL, max_rows=14) == 12
+
+    def test_degenerate_input_does_not_divide_by_zero(self):
+        assert fit_width((0, 0), 40, self.CELL) == 40
+        assert fit_width((640, 360), 0, self.CELL) == 1
+
+
+@pytest.mark.skipif(not IMAGES_AVAILABLE, reason="textual-image is not installed")
+class TestThumbnailPane:
+    """The preview beside the form. What is asserted is which state the pane is
+    in -- image, note, or hidden -- since whether pixels reach the terminal
+    depends on the terminal and cannot be checked from a test."""
+
+    async def test_shows_the_image_when_the_bucket_has_one(self, bucket):
+        bucket.seed("2026/05/IMG_0002.MOV.jpg", JPEG)
+
+        app = KeepsakeApp([("test", bucket)])
+        async with app.run_test() as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            assert app.items[0].thumbnail_key == "2026/05/IMG_0002.MOV.jpg"
+            image = app.query_one("#thumb")
+            assert image.display is True
+            assert image.image is not None
+            assert str(app.query_one("#thumb-note").content) == ""
+
+    async def test_says_how_to_make_one_when_there_is_none(self, bucket):
+        app = KeepsakeApp([("test", bucket)])
+        async with app.run_test() as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            assert app.query_one("#thumb").display is False
+            assert "press t" in str(app.query_one("#thumb-note").content)
+
+    async def test_an_unreadable_image_does_not_take_down_the_editor(self, bucket):
+        """A bucket is writable by other things, so a truncated or mislabelled
+        thumbnail is entirely possible. It is derived data -- report it in the
+        pane and carry on."""
+        bucket.seed("2026/05/IMG_0002.MOV.jpg", b"\xff\xd8not really a jpeg")
+
+        app = KeepsakeApp([("test", bucket)])
+        async with app.run_test() as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            assert app.query_one("#thumb").display is False
+            assert "not a readable image" in str(
+                app.query_one("#thumb-note").content
+            )
+            # The rest of the editor still works.
+            app.query_one("#field-title").value = "Still editable"
+            await pilot.pause()
+            assert app.items[0].dirty
+
+    async def test_a_portrait_thumbnail_is_narrowed_not_stretched(self, bucket):
+        """End to end: the pane must apply `fit_width`, not hand the widget the
+        whole pane and let it squash a phone clip into a landscape box."""
+        bucket.seed("2026/05/IMG_0002.MOV.jpg", a_jpeg((1080, 1920)))
+
+        app = KeepsakeApp([("test", bucket)])
+        async with app.run_test(size=(100, 40)) as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            image = app.query_one("#thumb")
+            pane = app.query_one("#right").content_size.width
+            assert image.display is True
+            # Narrower than the pane, which is what letterboxing looks like
+            # from here.
+            assert image.styles.width.value < pane
+            assert image.outer_size.height <= 14
+
+    async def test_a_landscape_thumbnail_fills_the_pane(self, bucket):
+        bucket.seed("2026/05/IMG_0002.MOV.jpg", a_jpeg((1920, 1080)))
+
+        app = KeepsakeApp([("test", bucket)])
+        async with app.run_test(size=(100, 40)) as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            image = app.query_one("#thumb")
+            assert image.display is True
+            assert image.styles.width.value == app.query_one("#right").content_size.width
+
+    async def test_a_landscape_clip_recovers_the_full_width_after_a_portrait_one(
+        self, bucket
+    ):
+        """The preview must not ratchet smaller. Narrowing the image narrows
+        its own container, so sizing off that would leave every clip after a
+        portrait one stuck at the portrait width."""
+        bucket.seed("2026/05/IMG_0002.MOV.jpg", a_jpeg((1080, 1920)))  # portrait
+        bucket.seed("2026/05/IMG_0007.MOV.jpg", a_jpeg((1920, 1080)))  # landscape
+
+        app = KeepsakeApp([("test", bucket)])
+        async with app.run_test(size=(100, 40)) as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            narrowed = app.query_one("#thumb").styles.width.value
+
+            await pilot.press("down")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            pane = app.query_one("#right").content_size.width
+            assert narrowed < pane
+            assert app.query_one("#thumb").styles.width.value == pane
+
+    async def test_moving_between_rows_swaps_the_image(self, bucket):
+        bucket.seed("2026/05/IMG_0007.MOV.jpg", JPEG)
+
+        app = KeepsakeApp([("test", bucket)])
+        async with app.run_test() as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            # First row has no thumbnail...
+            assert app.query_one("#thumb").display is False
+
+            await pilot.press("down")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            # ...the second does.
+            assert app.items[1].media_key == "2026/05/IMG_0007.MOV"
+            assert app.query_one("#thumb").display is True
+
+    async def test_rendering_one_fills_the_pane_immediately(
+        self, bucket, monkeypatch
+    ):
+        """`t` does not reload the library, so the pane has to be told about
+        the key that was just written."""
+        monkeypatch.setattr(thumbs_mod, "ffmpeg_available", lambda: True)
+        monkeypatch.setattr(thumbs_mod, "require_ffmpeg", lambda: None)
+        monkeypatch.setattr(
+            thumbs_mod, "render", lambda url, dest, **kw: dest.write_bytes(JPEG)
+        )
+        monkeypatch.setattr(thumbs_mod, "probe_duration", lambda url, **kw: 12.0)
+
+        app = KeepsakeApp([("test", bucket)])
+        async with app.run_test() as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert app.query_one("#thumb").display is False
+
+            await pilot.press("t")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            assert app.query_one("#thumb").display is True
 
 
 @pytest.mark.parametrize(

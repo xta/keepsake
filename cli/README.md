@@ -309,12 +309,26 @@ in that column means a file whose header would not give one up.
 
 ```
 ┌─ 2 libraries ────────────────────────────┬─ IMG_0002.MOV ──────────┐
-│ ● jane  IMG_0002.MOV   3:42  Spring play │ title       [       ]   │
-│   jane  IMG_0007.MOV  62 MB  —           │ recorded_at [       ]   │
-│   john  IMG_0011.MOV 240 MB  —           │ tags        [       ]   │
-│ 1 of 3 titled                            │ location    [       ]   │
+│ ● jane  IMG_0002.MOV   3:42  Spring play │ ┌─────────────────────┐ │
+│   jane  IMG_0007.MOV  62 MB  —           │ │   (thumbnail)       │ │
+│   john  IMG_0011.MOV 240 MB  —           │ └─────────────────────┘ │
+│ 1 of 3 titled                            │ title       [       ]   │
+│                                          │ recorded_at [       ]   │
 └──────────────────────────────────────────┴─────────────────────────┘
 ```
+
+**The highlighted video's thumbnail is shown beside the form**, which is most of
+why thumbnails are worth generating from here: identifying `IMG_0002.MOV`
+usually takes one glance at a frame rather than opening a player.
+
+It draws with whatever the terminal offers — the Kitty graphics protocol in
+Ghostty or Kitty, sixel elsewhere, and a half-block mosaic as a last resort —
+so there is nothing to configure. A file with no thumbnail says so and tells you
+to press `t`; one whose image will not decode says that instead of taking the
+editor down with it.
+
+Needs Python 3.12 or newer, since that is what `textual-image` requires. On
+3.11 everything else works and the pane is simply absent.
 
 Navigate entirely with arrows: `up`/`down` through the list, `right` into the
 form, `up`/`down` between fields, `left` at the start of a field back to the
@@ -350,10 +364,11 @@ which streams the video without downloading it.
 
 `t` renders a thumbnail for the highlighted video without leaving the editor,
 so the TUI finishes that job on its own rather than sending you to
-`sync --thumbs`. It deliberately re-renders one that already exists — a
-thumbnail is derived and disposable, and pressing `t` on a file that has one is
-a request for a better frame. Needs ffmpeg; without it you get a note rather
-than a failure.
+`sync --thumbs`. The new frame appears in the pane immediately. It deliberately
+re-renders one that already exists — a thumbnail is derived and disposable, and
+pressing `t` on a file that has one is a request for a better frame, usually
+because the first one landed on a blur. Needs ffmpeg; without it you get a note
+rather than a failure.
 
 **Saving re-reads before it writes.** SPEC.md notes that sidecar writes are
 last-writer-wins and the unsafe window is the whole edit session — someone who

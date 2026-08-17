@@ -24,6 +24,22 @@
     padding-bottom: 1;
 }
 
+/* `height: auto` is load-bearing: the widget derives an aspect-correct height
+   from whatever width it is given, so pinning both dimensions is what stretches
+   a picture. The width is set in code (see `fit_width`) because a tall image
+   needs a narrower one to stay inside the pane. Hidden entirely when there is
+   no image, so the form does not sit under a permanent empty box. */
+#thumb {
+    width: 100%;
+    height: auto;
+    max-height: 14;
+}
+
+#thumb-note {
+    height: auto;
+    color: $text-muted;
+}
+
 .field-label {
     color: $text-muted;
     padding-top: 1;

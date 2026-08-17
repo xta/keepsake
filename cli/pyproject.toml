@@ -12,6 +12,15 @@ dependencies = [
     "python-dotenv>=1.0",
     "rich>=13.0",
     "textual>=1.0",
+    # Thumbnails in the editor. Picks the best the terminal offers -- Kitty's
+    # graphics protocol, sixel, or a half-block mosaic -- so it degrades on its
+    # own rather than needing configuration.
+    #
+    # It requires Python 3.12, and this project supports 3.11 (see the UUIDv7
+    # note in models.py), so it is installed only where it can be. The import
+    # in tui/app.py is guarded to match: on 3.11 everything works except the
+    # preview pane, which is the right thing to lose over a picture.
+    "textual-image[textual]>=0.13; python_version >= '3.12'",
 ]
 
 [project.scripts]

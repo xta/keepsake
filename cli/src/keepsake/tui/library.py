@@ -75,6 +75,10 @@ class Item:
     sidecar_key: str
     payload: dict[str, Any]
     size: int
+    #: The thumbnail's own key, from classification rather than from the
+    #: sidecar's `thumbnail` field. The field is advisory and can be stale or
+    #: absent; this is what is actually in the bucket. None when there is none.
+    thumbnail_key: str | None = None
     #: Fields edited this session. Only these are merged on save, so a field
     #: someone else changed meanwhile is not clobbered.
     changed: set[str] = field(default_factory=set)
@@ -151,9 +155,24 @@ def load_items(
                     sidecar_key=sidecar_key,
                     payload=payload,
                     size=result.size_of(media_key),
+                    thumbnail_key=result.thumbnails.get(media_key),
                 )
             )
     return items
+
+
+def load_thumbnail(item: Item) -> bytes | None:
+    """The thumbnail's bytes, or None when there is none or it will not read.
+
+    A thumbnail is derived and disposable, so failing to fetch one is never
+    worth surfacing as an error -- the pane just stays empty.
+    """
+    if item.thumbnail_key is None:
+        return None
+    try:
+        return item.bucket.get(item.thumbnail_key)
+    except Exception:  # noqa: BLE001 - an absent preview is not a failure
+        return None
 
 
 def save_item(item: Item) -> None:

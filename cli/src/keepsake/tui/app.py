@@ -15,12 +15,14 @@ Bucket calls run in thread workers so the interface never blocks on B2.
 
 from __future__ import annotations
 
+import io
 from typing import Sequence
 
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.events import Resize
 from textual.screen import ModalScreen
 from textual.validation import Regex
 from rich.text import Text
@@ -59,10 +61,68 @@ from keepsake.tui.library import (
     Item,
     Source,
     load_items,
+    load_thumbnail,
     open_externally,
     save_item,
     titled,
 )
+
+#: Real images need a terminal graphics protocol and a decoder. `AutoImage`
+#: picks the best of what the terminal offers -- Kitty's protocol (which
+#: Ghostty and Kitty both speak), sixel, or a half-block mosaic as a last
+#: resort -- so the only question here is whether the package is installed at
+#: all. Guarded so a stripped install still runs: an archive tool that refuses
+#: to start because it cannot draw a picture would have its priorities wrong.
+try:
+    from PIL import Image as PILImage
+    from textual_image._terminal import get_cell_size
+    from textual_image.widget import AutoImage as ThumbnailImage
+
+    IMAGES_AVAILABLE = True
+except ImportError:  # pragma: no cover - exercised by uninstalling the extra
+    PILImage = None  # type: ignore[assignment]
+    get_cell_size = None  # type: ignore[assignment]
+    ThumbnailImage = None  # type: ignore[assignment]
+    IMAGES_AVAILABLE = False
+
+#: Rows the preview may occupy. Portrait video is why there is a cap at all:
+#: a 1080x1920 phone clip drawn at full pane width is three times as tall as a
+#: landscape one, and would push the form off the bottom of the screen.
+MAX_THUMB_ROWS = 14
+
+def fit_width(
+    pixels: tuple[int, int],
+    available: int,
+    cell: tuple[int, int],
+    max_rows: int = MAX_THUMB_ROWS,
+) -> int:
+    """How many cells wide to draw an image so it fits without distortion.
+
+    The widget derives an aspect-correct height from whatever width it is
+    given, so the only decision here is the width -- but a width that fills the
+    pane makes a tall image taller than the pane can spare, and constraining
+    the height instead makes a wide image overflow sideways. Letterboxing needs
+    both bounds considered, which is this.
+
+    Terminal cells are about twice as tall as they are wide (`get_cell_size`
+    reports 10x20 on this machine), so pixels cannot be compared to cells
+    without converting through it -- that factor of two is exactly the
+    stretching this avoids.
+    """
+    image_width, image_height = pixels
+    cell_width, cell_height = cell
+    if image_width <= 0 or image_height <= 0 or available <= 0:
+        return max(available, 1)
+
+    # Height in rows if the image were drawn at the full available width.
+    rows_at_full = (available * cell_width * image_height) / (image_width * cell_height)
+    if rows_at_full <= max_rows:
+        return available
+
+    # Too tall: back the width off until the height lands on the cap.
+    limited = (max_rows * cell_height * image_width) / (image_height * cell_width)
+    return max(1, min(available, int(limited)))
+
 
 NO_TITLE = "—"
 
@@ -414,6 +474,9 @@ class KeepsakeApp(App):
         self.untitled_only = False
         self._current: Item | None = None
         self._populating = False
+        #: Pixel dimensions of the preview currently on screen, kept so a
+        #: terminal resize can refit it without fetching the image again.
+        self._thumb_pixels: tuple[int, int] | None = None
         #: Profiles whose sidecars were written, so only their catalogs are
         #: rebuilt on the way out.
         self._wrote: set[str] = set()
@@ -438,6 +501,9 @@ class KeepsakeApp(App):
                 yield Label("loading...", id="tally")
             with VerticalScroll(id="right"):
                 yield Static(NO_TITLE, id="detail-name")
+                if IMAGES_AVAILABLE:
+                    yield ThumbnailImage(id="thumb")
+                    yield Static("", id="thumb-note")
                 for name in EDITABLE:
                     hint = FIELD_HINTS.get(name, "")
                     yield Label(
@@ -554,6 +620,103 @@ class KeepsakeApp(App):
                 widget.disabled = item is None
         finally:
             self._populating = False
+        self._show_thumbnail(item)
+
+    # ------------------------------------------------------------- thumbnail
+
+    def _show_thumbnail(self, item: Item | None) -> None:
+        """Put the highlighted file's thumbnail in the pane, or say there is none.
+
+        Cleared before the fetch rather than after: arrowing down a list would
+        otherwise leave the previous video's frame on screen beside the new
+        video's title, which is worse than an empty box for the moment it takes
+        to load.
+        """
+        if not IMAGES_AVAILABLE:
+            return
+
+        image = self.query_one("#thumb")
+        note = self.query_one("#thumb-note", Static)
+        image.image = None
+
+        self._thumb_pixels = None
+
+        if item is None:
+            image.display = False
+            note.update("")
+            return
+        if item.thumbnail_key is None:
+            image.display = False
+            note.update("[dim]no thumbnail — press t to render one[/]")
+            return
+
+        image.display = False
+        note.update("[dim]loading thumbnail…[/]")
+        self._fetch_thumbnail(item)
+
+    @work(thread=True, exclusive=True, group="thumbnail")
+    def _fetch_thumbnail(self, item: Item) -> None:
+        """Exclusive, so holding down an arrow key cancels the fetches it
+        outran instead of queueing one request per row passed."""
+        data = load_thumbnail(item)
+        self.call_from_thread(self._thumbnail_loaded, item, data)
+
+    def _thumbnail_loaded(self, item: Item, data: bytes | None) -> None:
+        # The cursor may have moved on while this was in flight, and a
+        # cancelled worker can still deliver. Only the current row's image
+        # belongs on screen.
+        if self._current is not item:
+            return
+
+        image = self.query_one("#thumb")
+        note = self.query_one("#thumb-note", Static)
+        if data is None:
+            image.display = False
+            note.update("[dim]thumbnail could not be read[/]")
+            return
+
+        try:
+            with PILImage.open(io.BytesIO(data)) as probe:
+                self._thumb_pixels = probe.size
+        except Exception:  # noqa: BLE001 - decoding is where bad bytes surface
+            # A truncated or mislabelled image is entirely possible in a bucket
+            # anything else can write to, and it is derived data: report it in
+            # the pane and carry on. Losing the editor over an unreadable
+            # picture would be absurd.
+            self._thumb_pixels = None
+            image.display = False
+            note.update("[dim]thumbnail is not a readable image — t re-renders it[/]")
+            return
+
+        self._resize_thumbnail()
+        image.image = io.BytesIO(data)
+        image.display = True
+        note.update("")
+
+    def _resize_thumbnail(self) -> None:
+        """Set the preview's width so its aspect ratio survives the pane.
+
+        Height is left `auto` -- the widget derives it from the width, which is
+        what keeps the picture from being stretched to whatever box it is put
+        in.
+        """
+        if not IMAGES_AVAILABLE or self._thumb_pixels is None:
+            return
+
+        # The pane, deliberately, not the image's own container: narrowing the
+        # image narrows that container too, so measuring it would ratchet the
+        # preview smaller with every portrait clip and never recover.
+        available = self.query_one("#right").content_size.width
+        if available <= 0:
+            return
+
+        self.query_one("#thumb").styles.width = fit_width(
+            self._thumb_pixels, available, tuple(get_cell_size())
+        )
+
+    def on_resize(self, event: Resize) -> None:
+        """A narrower terminal means a narrower image, not a squashed one."""
+        self._resize_thumbnail()
 
     @on(Input.Changed)
     def _field_edited(self, event: Input.Changed) -> None:
@@ -658,8 +821,15 @@ class KeepsakeApp(App):
                 item.payload[name] = stored[name]
                 item.original[name] = stored[name]
 
+        # Classification is not re-run, so record the key we just wrote --
+        # otherwise the pane would keep saying there is no thumbnail until the
+        # next reload.
+        item.thumbnail_key = thumbs_mod.thumb_key_for(item.media_key)
+
         self._wrote.add(item.profile)
         self._refresh_length(item)
+        if self._current is item:
+            self._show_thumbnail(item)
         self.notify(f"thumbnail written for {item.name}")
 
     def _refresh_length(self, item: Item) -> None:
