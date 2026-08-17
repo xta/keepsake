@@ -5,7 +5,9 @@ from keepsake.storage.base import (
     Bucket,
     MediaWriteRefused,
     Obj,
+    RangeReader,
     is_writable_key,
+    open_range_reader,
 )
 
 __all__ = [
@@ -15,5 +17,7 @@ __all__ = [
     "Bucket",
     "MediaWriteRefused",
     "Obj",
+    "RangeReader",
     "is_writable_key",
+    "open_range_reader",
 ]

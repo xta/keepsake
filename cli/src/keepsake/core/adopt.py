@@ -14,13 +14,13 @@ looks authoritative forever.
 
 from __future__ import annotations
 
-import json
 import mimetypes
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
 from keepsake.core.classify import Classification
+from keepsake.core.sidecar import serialize as serialize_sidecar
 from keepsake.core.survey import MEDIA_EXTS, extension_of
 from keepsake.models import SCHEMA_VERSION
 from keepsake.storage.base import (
@@ -112,7 +112,7 @@ class Stub:
     payload: dict[str, Any]
 
     def serialize(self) -> bytes:
-        return json.dumps(self.payload, indent=2, ensure_ascii=False).encode("utf-8")
+        return serialize_sidecar(self.payload)
 
 
 def plan(

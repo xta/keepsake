@@ -13,9 +13,14 @@ from typer.testing import CliRunner
 
 from keepsake import cli
 from keepsake.config import Profile
+from keepsake.core.thumbs import ffmpeg_available
 from keepsake.storage.local import LocalDirBucket
 
 runner = CliRunner()
+
+needs_ffmpeg = pytest.mark.skipif(
+    not ffmpeg_available(), reason="ffmpeg and ffprobe are not on PATH"
+)
 
 
 @pytest.fixture
@@ -138,6 +143,58 @@ class TestSync:
         result = runner.invoke(cli.app, ["status"])
         assert result.exit_code == 0
         assert "non-media-present" in result.stdout
+
+
+class TestSyncThumbs:
+    """The gated pass. `library`'s fixture media is not decodable video, so
+    these cover the plan and the gate rather than the rendering -- that runs
+    against real ffmpeg in test_thumbs.py."""
+
+    def test_no_thumbnail_work_is_mentioned_without_the_flag(self, library):
+        result = runner.invoke(cli.app, ["sync"])
+        assert "thumbnail" not in result.stdout.lower()
+
+    @needs_ffmpeg
+    def test_the_plan_lists_what_would_be_rendered(self, library):
+        result = runner.invoke(cli.app, ["sync", "--thumbs"])
+
+        assert result.exit_code == 0, result.output
+        # piano.mp4 already has a thumbnail in the fixture; IMG_4471.mov does not.
+        assert "1 thumbnail to render" in result.stdout
+        assert "media/2025/IMG_4471.mov.jpg" in result.stdout
+        assert "media/2026/piano.mp4.jpg" not in result.stdout
+        assert "nothing written" in result.stdout
+        assert library.head("media/2025/IMG_4471.mov.jpg") is None
+
+    def test_a_missing_ffmpeg_is_a_note_rather_than_a_failure(
+        self, library, monkeypatch
+    ):
+        """Degrade and say so. The rest of sync is useful without ffmpeg, and
+        stopping the run would make `--thumbs` a trap on a machine that has
+        never installed it."""
+        monkeypatch.setattr(cli.thumbs_mod, "ffmpeg_available", lambda: False)
+
+        result = runner.invoke(cli.app, ["sync", "--thumbs", "--apply"])
+
+        assert result.exit_code == 0, result.output
+        assert "brew install ffmpeg" in result.output
+        # The ordinary passes still ran.
+        assert library.head("media/2025/IMG_4471.mov.json") is not None
+        assert library.head("index.json") is not None
+
+    @needs_ffmpeg
+    def test_a_video_that_cannot_be_decoded_is_reported_and_skipped(self, library):
+        """The fixture's `IMG_4471.mov` is four kilobytes of 'y'. ffmpeg will
+        refuse it, which is the realistic failure for a corrupt file in a real
+        library."""
+        result = runner.invoke(cli.app, ["sync", "--thumbs", "--apply"])
+
+        assert result.exit_code == 0, result.output
+        assert "rendered 0 thumbnails" in result.stdout
+        assert "media/2025/IMG_4471.mov" in result.output
+        assert library.head("media/2025/IMG_4471.mov.jpg") is None
+        # ...and the catalog was still rebuilt.
+        assert json.loads(library.get("index.json"))["count"] == 2
         assert library.head("media/2025/IMG_4471.mov.json") is not None
         assert library.head("notes.txt.json") is None
 

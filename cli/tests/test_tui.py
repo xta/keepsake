@@ -5,6 +5,7 @@ import shlex
 
 import pytest
 
+from keepsake.core import thumbs as thumbs_mod
 from keepsake.core.upload import parse_paths
 from keepsake.storage.base import MediaWriteRefused
 from keepsake.storage.local import LocalDirBucket
@@ -644,6 +645,98 @@ class TestAddScreen:
 
         assert parse_paths(shlex.quote(str(clip))) == [clip]
         assert parse_paths(str(clip).replace(" ", "\\ ")) == [clip]
+
+
+class TestThumbnailKey:
+    """`t` on the highlighted row. The TUI has to finish this job on its own --
+    sending someone to the shell for `sync --thumbs` would make it half a front
+    end."""
+
+    async def test_renders_and_records_the_thumbnail(self, bucket, monkeypatch):
+        """ffmpeg is stubbed here rather than run. What is under test is the
+        wiring -- which file, which key, and whether the row refreshes -- and
+        the rendering itself is covered against real ffmpeg in test_thumbs.py.
+        """
+        monkeypatch.setattr(thumbs_mod, "ffmpeg_available", lambda: True)
+        monkeypatch.setattr(thumbs_mod, "require_ffmpeg", lambda: None)
+        monkeypatch.setattr(
+            thumbs_mod,
+            "render",
+            lambda url, dest, **kw: dest.write_bytes(b"\xff\xd8jpeg"),
+        )
+        monkeypatch.setattr(thumbs_mod, "probe_duration", lambda url, **kw: 222.0)
+
+        app = KeepsakeApp([("test", bucket)])
+        async with app.run_test() as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            await pilot.press("t")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            # The length column swaps size for runtime without a reload.
+            table = app.query_one("#items")
+            assert table.get_cell(app.items[0].uid, "length").plain == "3:42"
+
+        assert bucket.get("2026/05/IMG_0002.MOV.jpg") == b"\xff\xd8jpeg"
+        stored = json.loads(bucket.get("2026/05/IMG_0002.MOV.json"))
+        assert stored["thumbnail"] == "IMG_0002.MOV.jpg"
+        assert stored["duration_s"] == 222.0
+
+    async def test_says_so_when_ffmpeg_is_not_installed(self, bucket, monkeypatch):
+        monkeypatch.setattr(thumbs_mod, "ffmpeg_available", lambda: False)
+
+        app = KeepsakeApp([("test", bucket)])
+        async with app.run_test() as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            await pilot.press("t")
+            await pilot.pause()
+
+            assert any(
+                "brew install ffmpeg" in str(note.message)
+                for note in app._notifications
+            )
+
+        assert bucket.head("2026/05/IMG_0002.MOV.jpg") is None
+
+    async def test_an_unsaved_title_survives_the_render(self, bucket, monkeypatch):
+        """The render writes to the same sidecar the editor has open, so the
+        refresh afterwards has to touch only the two fields it could have
+        changed."""
+        monkeypatch.setattr(thumbs_mod, "ffmpeg_available", lambda: True)
+        monkeypatch.setattr(thumbs_mod, "require_ffmpeg", lambda: None)
+        monkeypatch.setattr(
+            thumbs_mod,
+            "render",
+            lambda url, dest, **kw: dest.write_bytes(b"\xff\xd8jpeg"),
+        )
+        monkeypatch.setattr(thumbs_mod, "probe_duration", lambda url, **kw: 222.0)
+
+        app = KeepsakeApp([("test", bucket)])
+        async with app.run_test() as pilot:
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            app.query_one("#field-title").value = "Spring concert"
+            await pilot.pause()
+
+            await pilot.press("t")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            assert app.items[0].dirty
+            assert app.items[0].text("title") == "Spring concert"
+
+            await pilot.press("ctrl+s")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+        stored = json.loads(bucket.get("2026/05/IMG_0002.MOV.json"))
+        assert stored["title"] == "Spring concert"
+        assert stored["thumbnail"] == "IMG_0002.MOV.jpg"
 
 
 @pytest.mark.parametrize(

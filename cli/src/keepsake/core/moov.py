@@ -30,6 +30,14 @@ MAX_BOXES = 128
 #: mvhd writes this when it does not know the duration.
 UNKNOWN_DURATION = 0xFFFFFFFF
 
+#: Decimal places kept on a runtime. `duration / timescale` is a ratio of two
+#: integers -- 109064/600 -- and printing it raw puts seventeen significant
+#: digits of float noise into an archive meant to outlive its tools. A
+#: millisecond is already finer than anything anyone will ask of a home video.
+#: Rounded here, in the parser, so `add` and `sync` cannot disagree about the
+#: same file.
+DURATION_PLACES = 3
+
 
 @dataclass(frozen=True)
 class MovieHeader:
@@ -123,7 +131,7 @@ def _parse_mvhd(payload: bytes) -> MovieHeader:
 
     runtime: float | None = None
     if timescale > 0 and duration > 0 and duration != UNKNOWN_DURATION:
-        runtime = duration / timescale
+        runtime = round(duration / timescale, DURATION_PLACES) or None
 
     return MovieHeader(recorded_at=_creation_date(field("creation")), duration_s=runtime)
 

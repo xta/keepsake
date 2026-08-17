@@ -44,8 +44,10 @@ from keepsake.config import (
     resolve_profiles,
 )
 from keepsake.core import adopt as adopt_mod
+from keepsake.core import backfill as backfill_mod
 from keepsake.core import check as check_mod
 from keepsake.core import index as index_mod
+from keepsake.core import thumbs as thumbs_mod
 from keepsake.core import upload as upload_mod
 from keepsake.core.classify import classify
 from keepsake.core.survey import human_bytes, human_duration, survey
@@ -268,21 +270,119 @@ def sync(
             help="Also adopt files whose extension is not recognised media",
         ),
     ] = False,
+    thumbs: Annotated[
+        bool,
+        typer.Option("--thumbs", help="Also render missing thumbnails (needs ffmpeg)"),
+    ] = False,
+    thumb_width: Annotated[
+        int, typer.Option("--thumb-width", help="Widest edge of a rendered thumbnail")
+    ] = thumbs_mod.DEFAULT_WIDTH,
+    thumb_seek: Annotated[
+        float,
+        typer.Option("--thumb-seek", help="Seconds into the video to grab the frame"),
+    ] = thumbs_mod.DEFAULT_SEEK,
 ) -> None:
     """Make the selected libraries match the convention.
 
-    Writes a stub sidecar for any media that lacks one, then rebuilds
-    index.json from every sidecar. Idempotent: running it again does nothing.
+    Writes a stub sidecar for any media that lacks one, fills in what each
+    movie's own header knows, then rebuilds index.json from every sidecar.
+    Idempotent: running it again does nothing.
+
+    `--thumbs` adds the expensive pass -- a frame rendered per video with
+    ffmpeg -- which is skipped by default because it needs ffmpeg installed and
+    decodes every file that lacks a thumbnail.
     """
     for prof, bucket in _open(profile, writable=apply):
-        _sync_one(prof, bucket, prefix, apply, details, adopt_all)
+        _sync_one(
+            prof,
+            bucket,
+            prefix,
+            apply,
+            details,
+            adopt_all,
+            thumbs=thumbs,
+            thumb_width=thumb_width,
+            thumb_seek=thumb_seek,
+        )
 
 
-def _sync_one(prof, bucket, prefix, apply, details, adopt_all=False) -> None:
+def _fill_lines(fill) -> list[str]:
+    """A backfill rendered as `field  value` lines, for either mode."""
+    return [f"      [dim]{name:<12}[/]{value}" for name, value in fill.fields.items()]
+
+
+def _backfill_one(bucket, result) -> None:
+    """Fill `recorded_at` and `duration_s` from each movie's own header.
+
+    Cheap enough -- a couple of range requests per file -- to run without a
+    flag. Nothing here overwrites a value that is already there.
+    """
+    fills, read_failures = backfill_mod.plan(bucket, result)
+    for key, reason in read_failures:
+        err.print(f"[yellow]skipped[/] {key}: {reason}")
+    if not fills:
+        return
+
+    filled, failures = backfill_mod.apply(bucket, fills)
+    console.print(
+        f"filled [green]{_plural(filled, 'sidecar')}[/] from movie headers"
+    )
+    for fill in fills:
+        console.print(f"  [dim]{fill.sidecar_key}[/]")
+        for line in _fill_lines(fill):
+            console.print(line)
+    for key, reason in failures:
+        err.print(f"[yellow]skipped[/] {key}: {reason}")
+
+
+def _thumbs_one(bucket, result, *, width: int, seek: float) -> None:
+    """Render a still for every video that has none.
+
+    A remote decode takes long enough that a line per file is the difference
+    between "working" and "hung", so each one announces itself before it
+    starts rather than after it finishes.
+    """
+    plan, read_failures = thumbs_mod.plan(bucket, result)
+    for key, reason in read_failures:
+        err.print(f"[yellow]skipped[/] {key}: {reason}")
+    if not plan:
+        console.print("thumbnails [dim]already current[/]")
+        return
+
+    def announce(thumb, position: int, total: int) -> None:
+        console.print(f"  [dim]{position}/{total}[/] rendering {thumb.media_key}")
+
+    written, failures = thumbs_mod.apply(
+        bucket, plan, seek=seek, width=width, on_start=announce
+    )
+    console.print(f"rendered [green]{_plural(written, 'thumbnail')}[/]")
+    for key, reason in failures:
+        err.print(f"[yellow]skipped[/] {key}: {reason}")
+
+
+def _sync_one(
+    prof,
+    bucket,
+    prefix,
+    apply,
+    details,
+    adopt_all=False,
+    *,
+    thumbs=False,
+    thumb_width=thumbs_mod.DEFAULT_WIDTH,
+    thumb_seek=thumbs_mod.DEFAULT_SEEK,
+) -> None:
     result = classify(bucket.list(prefix))
     stubs = adopt_mod.plan(
         result, new_id=new_id, include_unrecognised=adopt_all
     )
+
+    if thumbs and not thumbs_mod.ffmpeg_available():
+        err.print(
+            "[yellow]note[/] ffmpeg and ffprobe are not on PATH, so no thumbnails "
+            "will be rendered. Install with `brew install ffmpeg`."
+        )
+        thumbs = False
 
     if apply:
         _header(prof)
@@ -292,9 +392,17 @@ def _sync_one(prof, bucket, prefix, apply, details, adopt_all=False) -> None:
             for key, reason in failures:
                 err.print(f"[yellow]skipped[/] {key}: {reason}")
             # Sidecars are the source of truth, so the catalog is built from
-            # the bucket as it stands after they land.
+            # the bucket as it stands after they land. Reclassifying here also
+            # means the passes below see the sidecars just written.
             result = classify(bucket.list(prefix))
 
+        _backfill_one(bucket, result)
+        if thumbs:
+            _thumbs_one(bucket, result, width=thumb_width, seek=thumb_seek)
+
+        # Neither pass changes which keys are media or which have sidecars, so
+        # the classification still holds; `build_index` re-reads each sidecar
+        # and picks up everything they just wrote.
         index = index_mod.build_index(result, bucket)
         if _index_is_current(bucket, index):
             console.print("index.json [dim]already current[/]")
@@ -311,6 +419,12 @@ def _sync_one(prof, bucket, prefix, apply, details, adopt_all=False) -> None:
     # the one that would result from writing them.
     planned_count = index["count"] + len(stubs)
 
+    fills, read_failures = backfill_mod.plan(bucket, result)
+    thumb_plan: list = []
+    if thumbs:
+        thumb_plan, thumb_read_failures = thumbs_mod.plan(bucket, result)
+        read_failures = read_failures + thumb_read_failures
+
     _header(prof)
     if stubs:
         console.print(f"[bold]{_plural(len(stubs), 'sidecar')}[/] to write")
@@ -324,14 +438,43 @@ def _sync_one(prof, bucket, prefix, apply, details, adopt_all=False) -> None:
     else:
         console.print("[dim]no sidecars needed[/]")
 
+    if fills:
+        console.print(
+            f"\n[bold]{_plural(len(fills), 'sidecar')}[/] to fill from movie headers"
+        )
+        for fill in fills:
+            console.print(f"  [green]~[/] {fill.sidecar_key}")
+            for line in _fill_lines(fill):
+                console.print(line)
+
+    if thumbs:
+        if thumb_plan:
+            console.print(f"\n[bold]{_plural(len(thumb_plan), 'thumbnail')}[/] to render")
+            for thumb in thumb_plan:
+                console.print(f"  [green]+[/] {thumb.thumb_key}")
+        else:
+            console.print("\n[dim]every video already has a thumbnail[/]")
+
+    for key, reason in read_failures:
+        err.print(f"[yellow]unreadable[/] {key}: {reason}")
+
+    if stubs:
+        # The header pass runs after adoption, against sidecars that do not
+        # exist yet as this plan is drawn. Saying so beats having --apply write
+        # more than the dry run promised.
+        console.print(
+            "\n[dim]sidecars written above are filled from their headers in the "
+            "same run[/]"
+        )
+
     if not result.index_present:
         console.print(f"\nindex.json to create ({_plural(planned_count, 'item')})")
-    elif stubs or not _index_is_current(bucket, index):
+    elif stubs or fills or not _index_is_current(bucket, index):
         console.print(f"\nindex.json to rebuild ({_plural(planned_count, 'item')})")
     else:
         console.print("\nindex.json [dim]already current[/]")
 
-    if stubs or not result.index_present:
+    if stubs or fills or thumb_plan or not result.index_present:
         console.print("\n[yellow]nothing written.[/] re-run with --apply\n")
     else:
         console.print("\n[green]already in sync[/]\n")

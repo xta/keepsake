@@ -43,6 +43,16 @@ class LocalDirBucket(GuardedBucket):
             raise KeyError(key)
         return path.read_bytes()
 
+    def get_range(self, key: str, start: int, end: int) -> bytes:
+        path = self._path(key)
+        if not path.is_file():
+            raise KeyError(key)
+        with path.open("rb") as fh:
+            fh.seek(start)
+            # `end` is inclusive, as HTTP counts it. A seek past the end of the
+            # file reads empty, which matches what B2 answers for the same range.
+            return fh.read(max(0, end - start + 1))
+
     def head(self, key: str) -> Obj | None:
         path = self._path(key)
         if not path.is_file():

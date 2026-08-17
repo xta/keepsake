@@ -37,8 +37,10 @@ from textual.widgets import (
 )
 
 from keepsake.core import index as index_mod
+from keepsake.core import thumbs as thumbs_mod
 from keepsake.core.classify import classify
 from keepsake.core.moov import read_movie_header_at
+from keepsake.core.sidecar import read_sidecar
 from keepsake.core.survey import compact_bytes, human_bytes, human_duration
 from keepsake.core.upload import (
     Candidate,
@@ -384,6 +386,7 @@ class KeepsakeApp(App):
         Binding("ctrl+s", "save", "Save"),
         Binding("a", "add_media", "Add files"),
         Binding("o", "open_media", "Open in player"),
+        Binding("t", "make_thumb", "Thumbnail"),
         Binding("u", "toggle_untitled", "Untitled only"),
         Binding("escape", "focus_list", "Back to list"),
         Binding("q", "quit_asking", "Quit"),
@@ -604,6 +607,68 @@ class KeepsakeApp(App):
             self.notify(f"could not open: {exc}", severity="error")
         else:
             self.notify(f"opening {self._current.name}")
+
+    def action_make_thumb(self) -> None:
+        """Render a thumbnail for the highlighted file.
+
+        Deliberately regenerates one that already exists. A thumbnail is
+        derived and disposable, so overwriting costs a re-render and nothing
+        else -- and someone who presses this on a file that has one is asking
+        for a better frame, which is the only reason to ask twice.
+        """
+        if self._current is None:
+            return
+        if not thumbs_mod.ffmpeg_available():
+            self.notify(
+                "ffmpeg is not installed. `brew install ffmpeg` to render thumbnails.",
+                severity="warning",
+            )
+            return
+        self.notify(f"rendering thumbnail for {self._current.name}")
+        self._make_thumb(self._current)
+
+    @work(thread=True)
+    def _make_thumb(self, item: Item) -> None:
+        thumb = thumbs_mod.Thumb(
+            media_key=item.media_key,
+            thumb_key=thumbs_mod.thumb_key_for(item.media_key),
+            sidecar_key=item.sidecar_key,
+            needs_duration=not item.payload.get("duration_s"),
+        )
+        written, failures = thumbs_mod.apply(item.bucket, [thumb])
+        self.call_from_thread(self._thumb_done, item, bool(written), failures)
+
+    def _thumb_done(
+        self, item: Item, written: bool, failures: list[tuple[str, str]]
+    ) -> None:
+        if not written:
+            reason = failures[0][1] if failures else "no frame"
+            self.notify(f"{item.name}: {reason}", severity="error")
+            return
+
+        # The pass wrote to this sidecar, so the copy held here is stale. Only
+        # the two fields it can touch are refreshed: neither is editable, so
+        # this can never land on top of something being typed.
+        try:
+            stored = read_sidecar(item.bucket, item.sidecar_key, fallback=item.payload)
+        except Exception:  # noqa: BLE001 - the image landed; the display can lag
+            stored = item.payload
+        for name in ("thumbnail", "duration_s"):
+            if name in stored:
+                item.payload[name] = stored[name]
+                item.original[name] = stored[name]
+
+        self._wrote.add(item.profile)
+        self._refresh_length(item)
+        self.notify(f"thumbnail written for {item.name}")
+
+    def _refresh_length(self, item: Item) -> None:
+        table = self.query_one("#items", DataTable)
+        try:
+            table.update_cell(item.uid, "length", _length_cell(item))
+        except Exception:
+            # Row is filtered out of the current view; nothing to update.
+            pass
 
     def known_prefixes(self, profile: str) -> list[str]:
         """Prefixes this library already uses, most populated first.

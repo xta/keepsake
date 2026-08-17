@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable, Sequence
 
 from keepsake.core.classify import classify
+from keepsake.core.sidecar import merge_sidecar
 from keepsake.storage.base import Bucket
 
 #: A named library: the profile it came from and the bucket holding it.
@@ -158,37 +159,25 @@ def load_items(
 def save_item(item: Item) -> None:
     """Write the sidecar, merging this session's edits onto its current state.
 
-    SPEC.md's concurrency note: sidecar writes are last-writer-wins, and the
-    unsafe window is the whole edit session, not the request. Someone typing a
-    title for two minutes and then PUTting the object they loaded at startup
-    would silently discard anything written in between.
+    Only the fields edited in this session are applied, so a field somebody
+    else changed meanwhile survives. `merge_sidecar` carries the rest of the
+    rule -- see `core/sidecar.py` for why re-reading here matters.
 
-    So the stored sidecar is re-read here and only the fields edited in this
-    session are applied. That narrows the window to a single request. B2's
-    S3 API has no conditional writes, so it cannot be closed entirely.
+    The fallback is this item's own payload: a sidecar that has become
+    unreadable since it was loaded should not cost someone the title they just
+    typed, and the copy loaded at startup is the best remaining record of what
+    the file said.
     """
     if not item.changed:
         return
 
-    bucket = item.bucket
-    try:
-        stored = json.loads(bucket.get(item.sidecar_key))
-        if not isinstance(stored, dict):
-            stored = dict(item.payload)
-    except (KeyError, json.JSONDecodeError):
-        stored = dict(item.payload)
-
-    for name in item.changed:
-        if name in item.payload:
-            stored[name] = item.payload[name]
-        else:
-            stored.pop(name, None)
-
-    bucket.put(
-        item.sidecar_key,
-        json.dumps(stored, indent=2, ensure_ascii=False).encode("utf-8"),
-        content_type="application/json",
+    # A field in `changed` but absent from the payload was cleared, and
+    # `merge_sidecar` reads None as "remove this".
+    fields = {name: item.payload.get(name) for name in item.changed}
+    stored = merge_sidecar(
+        item.bucket, item.sidecar_key, fields, fallback=dict(item.payload)
     )
+
     item.payload = stored
     item.original = dict(stored)
     item.changed.clear()

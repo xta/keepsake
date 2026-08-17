@@ -116,6 +116,27 @@ class B2Bucket(GuardedBucket):
                 raise KeyError(key) from exc
             raise
 
+    def get_range(self, key: str, start: int, end: int) -> bytes:
+        """One HTTP Range request. `end` is inclusive.
+
+        B2 serves ranges (`206`, `Accept-Ranges: bytes`), which is what makes
+        reading a movie header out of a multi-gigabyte object cheap.
+        """
+        from botocore.exceptions import ClientError
+
+        try:
+            resp = self._client.get_object(
+                Bucket=self.name, Key=key, Range=f"bytes={start}-{end}"
+            )
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code", "")
+            if code in ("NoSuchKey", "404"):
+                raise KeyError(key) from exc
+            if code in ("InvalidRange", "416", "RequestedRangeNotSatisfiable"):
+                return b""
+            raise
+        return resp["Body"].read()
+
     def head(self, key: str) -> Obj | None:
         from botocore.exceptions import ClientError
 

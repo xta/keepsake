@@ -160,6 +160,120 @@ class ProgressReader:
         return self._fh.tell()
 
 
+#: How much `RangeReader` fetches per request. Big enough that a box walk
+#: through the front of a file is one request, small enough that landing on the
+#: wrong offset costs little.
+RANGE_CHUNK = 64 * 1024
+
+
+class RangeReader:
+    """A seekable, read-only file object over one bucket key.
+
+    `read_movie_header` takes a file object rather than a path precisely so it
+    could one day read a remote file this way. It seeks to a handful of offsets
+    and reads a few bytes at each, which over HTTP would be a request per read
+    if nothing cached. Downloading the object instead is not an option -- the
+    whole point is to read a hundred bytes out of a four-gigabyte video.
+
+    So reads are served from a single cached window, refilled a chunk at a
+    time. A QuickTime box walk touches the front of the file and then jumps to
+    `moov`, which iPhone footage puts at the end, so a whole parse costs about
+    two requests. `requests` counts them, which is the only honest way to
+    assert that in a test.
+    """
+
+    def __init__(
+        self,
+        bucket: "Bucket",
+        key: str,
+        size: int,
+        *,
+        chunk_size: int = RANGE_CHUNK,
+    ):
+        self._bucket = bucket
+        self._key = key
+        self._size = size
+        self._chunk = chunk_size
+        self._pos = 0
+        self._window = b""
+        self._window_at = 0
+        #: Range requests actually issued. Read by tests and diagnostics.
+        self.requests = 0
+
+    def seek(self, offset: int, whence: int = 0) -> int:
+        if whence == 0:
+            target = offset
+        elif whence == 1:
+            target = self._pos + offset
+        elif whence == 2:
+            target = self._size + offset
+        else:
+            raise ValueError(f"invalid whence: {whence}")
+        # Clamped rather than refused: seeking past the end is legal for a file
+        # object, and the read that follows simply returns nothing.
+        self._pos = max(0, target)
+        return self._pos
+
+    def tell(self) -> int:
+        return self._pos
+
+    def read(self, size: int = -1) -> bytes:
+        remaining = max(0, self._size - self._pos)
+        wanted = remaining if size is None or size < 0 else min(size, remaining)
+        if wanted == 0:
+            return b""
+
+        if not self._holds(self._pos, wanted):
+            self._fill(self._pos, wanted)
+
+        offset = self._pos - self._window_at
+        data = self._window[offset : offset + wanted]
+        self._pos += len(data)
+        return data
+
+    def _holds(self, start: int, size: int) -> bool:
+        return (
+            self._window_at <= start
+            and start + size <= self._window_at + len(self._window)
+        )
+
+    def _fill(self, start: int, size: int) -> None:
+        end = min(start + max(size, self._chunk), self._size) - 1
+        if end < start:
+            self._window, self._window_at = b"", start
+            return
+        self._window = self._bucket.get_range(self._key, start, end)
+        self._window_at = start
+        self.requests += 1
+
+    def readable(self) -> bool:
+        return True
+
+    def seekable(self) -> bool:
+        return True
+
+    def close(self) -> None:
+        """Nothing is held open; each range is its own request."""
+
+    def __enter__(self) -> "RangeReader":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+
+def open_range_reader(bucket: "Bucket", key: str) -> RangeReader | None:
+    """A reader over `key`, or None when the object is not there.
+
+    The HEAD is not wasted: `RangeReader` needs the size to answer
+    `seek(0, 2)`, which is the first thing any header parser does.
+    """
+    obj = bucket.head(key)
+    if obj is None:
+        return None
+    return RangeReader(bucket, key, obj.size)
+
+
 @runtime_checkable
 class Bucket(Protocol):
     """A keepsake bucket. Read methods always work; writes are guarded."""
@@ -172,6 +286,16 @@ class Bucket(Protocol):
 
     def get(self, key: str) -> bytes:
         """Fetch an object's bytes. Raises KeyError if absent."""
+        ...
+
+    def get_range(self, key: str, start: int, end: int) -> bytes:
+        """Bytes `start` through `end` inclusive, as HTTP Range counts them.
+
+        Raises KeyError if the object is absent. A range beginning past the end
+        of the object returns empty rather than raising: a caller walking a
+        malformed header can ask for one, and an empty read lets the parser
+        give up on its own terms.
+        """
         ...
 
     def head(self, key: str) -> Obj | None:

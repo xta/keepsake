@@ -122,6 +122,7 @@ uv run keepsake profiles --verify   # list profiles, reach each bucket
 uv run keepsake status              # survey + findings, every library
 uv run keepsake sync                # show every change it would make
 uv run keepsake sync --apply        # write them
+uv run keepsake sync --thumbs --apply   # ...and render missing thumbnails
 uv run keepsake add clip.mov -p rex # upload, with a sidecar
 uv run keepsake set clip.mov -p rex -t "Title"   # metadata from the shell
 uv run keepsake edit                # terminal UI over every library
@@ -130,17 +131,71 @@ uv run keepsake status -p jane      # ...or narrow any of them to one
 uv run keepsake sync -p jane --details
 ```
 
-`sync` writes a stub sidecar for any media lacking one, then rebuilds
-`index.json` from every sidecar — in that order, because sidecars are the
-source of truth and the catalog is derived from them. It is idempotent:
-running it again writes nothing, and it skips rewriting an unchanged
-`index.json` rather than creating a pointless new object version.
+`sync` writes a stub sidecar for any media lacking one, fills in what each
+movie's own header knows, then rebuilds `index.json` from every sidecar — in
+that order, because sidecars are the source of truth and the catalog is derived
+from them. It is idempotent: running it again writes nothing, and it skips
+rewriting an unchanged `index.json` rather than creating a pointless new object
+version.
 
 Adding videos to any bucket later, by any means, is followed by one command:
 
 ```sh
 uv run keepsake sync --apply
 ```
+
+### What `sync` fills in from a video's header
+
+`recorded_at` and `duration_s` are sitting in every QuickTime/MP4 file's own
+`mvhd` box, so `sync` reads them for any sidecar that lacks them:
+
+```
+rex -> feng-media-rex
+
+filled 2 sidecars from movie headers
+  2026/05/IMG_0002.MOV.json
+      recorded_at 2026-05-22
+      duration_s  222.0
+```
+
+Reading it costs about two range requests and a few hundred bytes per file —
+the parser seeks to the header rather than downloading anything — which is why
+this runs by default instead of behind a flag.
+
+**Nothing here overwrites.** Only absent fields are filled, so a date somebody
+typed always outranks one a parser derived. A file whose header holds no date
+is simply skipped, and is looked at again next run.
+
+### `sync --thumbs`
+
+The expensive pass, so it is opt-in:
+
+```sh
+uv run keepsake sync --thumbs               # plan only
+uv run keepsake sync --thumbs --apply       # render and upload
+uv run keepsake sync --thumbs --apply --thumb-seek 12 --thumb-width 800
+```
+
+A frame is rendered per video with ffmpeg and uploaded as `{media}.jpg`, then
+the sidecar's `thumbnail` field records it, in that order — SPEC.md's write
+order, so an interrupted run leaves an image nobody references rather than a
+reference to a missing image. The next run picks it up.
+
+Requires ffmpeg (`brew install ffmpeg`). Without it the pass is skipped with a
+note and the rest of `sync` runs normally.
+
+ffmpeg reads a presigned URL directly and B2 serves range requests, so a
+thumbnail from a 4 GB video transfers a few megabytes rather than the file.
+Nothing is downloaded whole and nothing is transcoded.
+
+The frame is taken 5 seconds in — the first seconds of home video are reliably
+a lens cap or a floor — falling back to the first frame for clips shorter than
+that. Images are scaled to 640px wide and never upscaled. Video that already
+has a thumbnail is skipped, so a rerun costs one listing.
+
+Runtime comes nearly free here, since the decoder reads the header either way:
+any video the `mvhd` pass could not read — AVI, MKV, WMV, the formats digitised
+home movies arrive in — gets its `duration_s` from `ffprobe` on the way past.
 
 ### `keepsake add`
 
@@ -248,9 +303,9 @@ shows the prefixes your library already uses, and warns if you point it at the
 bucket root.
 
 The `length` column shows the runtime when the sidecar records `duration_s`,
-and falls back to file size — dimmed, so the two read apart — when it does
-not. `add` fills `duration_s` from the file's header; videos adopted by `sync`
-have no runtime recorded yet, so those rows still show sizes.
+and falls back to file size — dimmed, so the two read apart — when it does not.
+Both `add` and `sync` fill `duration_s` from the file's own header, so a size
+in that column means a file whose header would not give one up.
 
 ```
 ┌─ 2 libraries ────────────────────────────┬─ IMG_0002.MOV ──────────┐
@@ -268,6 +323,7 @@ list. `escape` returns to the list from anywhere.
 | Key | |
 |---|---|
 | `o` | Open the selected video in your system player |
+| `t` | Render a thumbnail for the selected video |
 | `u` | Show only untitled items |
 | `ctrl+s` | Save |
 | `q` | Quit — offers save, discard, or cancel if anything is unsaved |
@@ -292,6 +348,13 @@ wants rather than accepting anything and producing an unreadable archive.
 watching it. It signs a short-lived URL and hands it to the system player,
 which streams the video without downloading it.
 
+`t` renders a thumbnail for the highlighted video without leaving the editor,
+so the TUI finishes that job on its own rather than sending you to
+`sync --thumbs`. It deliberately re-renders one that already exists — a
+thumbnail is derived and disposable, and pressing `t` on a file that has one is
+a request for a better frame. Needs ffmpeg; without it you get a note rather
+than a failure.
+
 **Saving re-reads before it writes.** SPEC.md notes that sidecar writes are
 last-writer-wins and the unsafe window is the whole edit session — someone who
 loads a sidecar, types for two minutes, then PUTs the object they started with
@@ -306,7 +369,7 @@ to are rebuilt.
 
 ### What `sync` records in a new sidecar
 
-Only what the bucket already knows: `schema`, a fresh ULID `id`, `file`,
+Only what the bucket already knows: `schema`, a fresh UUIDv7 `id`, `file`,
 `uploaded_at` (the object's own timestamp), `size_bytes`, and `media_type`.
 
 `title` and `recorded_at` are left absent rather than derived from the filename
@@ -318,7 +381,11 @@ wrong one looks authoritative forever.
 `add` has the file itself rather than just a listing, so it records more:
 `sha256` (computed on a second local read — nearly free now, expensive forever
 after), plus `recorded_at` and `duration_s` when the header supplies them.
-`title` is still the one field only a person can fill.
+
+A stub is not the last word on a file. The passes above fill in `recorded_at`
+and `duration_s` from the header, and `--thumbs` adds `thumbnail`, so a sidecar
+that started as four machine facts fills itself out over subsequent runs.
+`title` remains the one field only a person can fill.
 
 ## Backblaze notes
 
@@ -343,6 +410,12 @@ uv run pytest
 
 The suite runs entirely against `LocalDirBucket` — no network, no credentials,
 no B2. Fixture buckets are just directory trees.
+
+The thumbnail tests shell out to the real ffmpeg against tiny generated videos,
+since the interesting failures there are ffmpeg's own. They skip themselves if
+it is not installed. `LocalDirBucket.presigned_url` returns a `file://` URI,
+which ffmpeg reads exactly as it reads a presigned B2 URL, so that pass
+exercises end to end offline too.
 
 ## License
 

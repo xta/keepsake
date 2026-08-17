@@ -57,6 +57,28 @@ class TestDuration:
         header = read_movie_header(movie(mvhd_v0(timescale=600, duration=247_200)))
         assert header.duration_s == 412.0
 
+    def test_rounds_to_milliseconds(self):
+        """`duration / timescale` is a ratio of integers, and this one does not
+        divide evenly: raw, it is 181.77333333333334. Seventeen significant
+        digits of float noise do not belong in an archive, and a millisecond is
+        finer than anything anyone asks of a home video.
+
+        Rounded in the parser rather than at either writer, so a sidecar
+        written by `add` and one written by `sync` cannot disagree about the
+        same file.
+        """
+        header = read_movie_header(movie(mvhd_v0(timescale=600, duration=109_064)))
+        assert header.duration_s == 181.773
+
+    def test_a_runtime_too_short_to_round_to_is_absent(self):
+        """Rounding must not manufacture a zero-length video. `duration > 0`
+        already means "unknown" everywhere else, and 0.0 would read as a fact.
+        """
+        header = read_movie_header(
+            movie(mvhd_v0(creation=SOME_STAMP, timescale=100_000, duration=1))
+        )
+        assert header.duration_s is None
+
     def test_reads_the_64_bit_layout(self):
         header = read_movie_header(movie(mvhd_v1(timescale=1000, duration=90_000)))
         assert header.duration_s == 90.0
