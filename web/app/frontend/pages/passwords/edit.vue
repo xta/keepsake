@@ -1,5 +1,5 @@
 <script setup>
-import { useForm } from '@inertiajs/vue3'
+import { Head, useForm } from '@inertiajs/vue3'
 import AppLayout from '../../layouts/AppLayout.vue'
 defineOptions({ layout: AppLayout })
 
@@ -8,6 +8,7 @@ const form = useForm({ password: '', password_confirmation: '' })
 </script>
 
 <template>
+  <Head title="Choose a new password" />
   <div style="max-width: 24rem; margin: 2rem auto;">
     <h1>Choose a new password</h1>
     <form class="card card-pad" style="margin-top: 1.5rem"

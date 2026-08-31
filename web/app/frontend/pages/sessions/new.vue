@@ -1,5 +1,5 @@
 <script setup>
-import { Link, useForm } from '@inertiajs/vue3'
+import { Head, Link, useForm } from '@inertiajs/vue3'
 import AppLayout from '../../layouts/AppLayout.vue'
 defineOptions({ layout: AppLayout })
 
@@ -7,6 +7,7 @@ const form = useForm({ email_address: '', password: '' })
 </script>
 
 <template>
+  <Head title="Sign in" />
   <div style="max-width: 24rem; margin: 2rem auto;">
     <h1>Sign in</h1>
 

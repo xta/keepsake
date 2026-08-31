@@ -1,5 +1,5 @@
 <script setup>
-import { Link, router } from '@inertiajs/vue3'
+import { Head, Link, router } from '@inertiajs/vue3'
 import { ref, onMounted, onUnmounted } from 'vue'
 import AppLayout from '../../layouts/AppLayout.vue'
 import { bytes, duration, recordedAt, timeAgo } from '../../lib/format'
@@ -41,6 +41,7 @@ function refresh() {
 </script>
 
 <template>
+  <Head :title="library.label" />
   <div class="page-head">
     <div class="grow">
       <h1>{{ library.label }}</h1>

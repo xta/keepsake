@@ -1,5 +1,5 @@
 <script setup>
-import { Link } from '@inertiajs/vue3'
+import { Head, Link } from '@inertiajs/vue3'
 import AppLayout from '../../layouts/AppLayout.vue'
 import { bytes, timeAgo } from '../../lib/format'
 defineOptions({ layout: AppLayout })
@@ -8,6 +8,7 @@ defineProps({ libraries: Array })
 </script>
 
 <template>
+  <Head title="Libraries" />
   <div class="page-head">
     <div class="grow">
       <h1>Your libraries</h1>

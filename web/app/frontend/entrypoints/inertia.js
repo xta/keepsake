@@ -4,6 +4,11 @@ import { createInertiaApp } from '@inertiajs/vue3'
 createInertiaApp({
   pages: "../pages",
 
+  // Every page sets its own <Head title>; this decides how it is dressed.
+  // A bare "keepsake" on a page with no title of its own.
+  title: (title) => (title ? `${title} · keepsake` : 'keepsake'),
+
+
   defaults: {
     form: {
       forceIndicesArrayFormatInFormData: false,

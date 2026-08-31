@@ -1,5 +1,5 @@
 <script setup>
-import { Link, useForm, router } from '@inertiajs/vue3'
+import { Head, Link, useForm, router } from '@inertiajs/vue3'
 import { ref, computed } from 'vue'
 import AppLayout from '../../layouts/AppLayout.vue'
 import { bytes, duration, recordedAt } from '../../lib/format'
@@ -35,13 +35,18 @@ const form = useForm({
   notes: props.item.sidecar?.notes || '',
 })
 
-const thumbing = ref(false)
-function makeThumbnail() {
-  thumbing.value = true
-  router.post(`/libraries/${props.library.id}/items/${props.item.id}/thumbnail`, {}, {
-    onFinish: () => { thumbing.value = false },
+const enriching = ref(false)
+function enrich() {
+  enriching.value = true
+  router.post(`/libraries/${props.library.id}/items/${props.item.id}/enrich`, {}, {
+    onFinish: () => { enriching.value = false },
   })
 }
+
+// Worth offering only while something is actually missing.
+const incomplete = computed(() =>
+  !props.item.recordedAt || !props.item.durationS || (!props.item.thumbnailUrl && props.item.kind === 'video')
+)
 
 function save() {
   form.patch(`/libraries/${props.library.id}/items/${props.item.id}`, {
@@ -56,6 +61,7 @@ const extra = computed(() =>
 </script>
 
 <template>
+  <Head :title="item.displayTitle" />
   <div class="page-head">
     <div class="grow">
       <p class="sub" style="margin: 0 0 .3rem">
@@ -133,12 +139,11 @@ const extra = computed(() =>
       </dl>
       <div class="row" style="margin: 1.25rem 0 0">
         <a class="btn btn-sm" :href="item.downloadUrl">Download original</a>
-        <!-- Only when there is not one already, and only when the key can
-             write. A thumbnail is derived: making one costs a render, and
-             losing one costs nothing. -->
-        <button v-if="library.writable && !item.thumbnailUrl && item.kind === 'video'"
-                class="btn btn-sm" :disabled="thumbing" @click="makeThumbnail">
-          {{ thumbing ? 'Rendering…' : 'Create thumbnail' }}
+        <!-- Only while something is missing, and only when the key can write.
+             Fills the date, the runtime and the still, whichever are absent. -->
+        <button v-if="library.writable && incomplete"
+                class="btn btn-sm" :disabled="enriching" @click="enrich">
+          {{ enriching ? 'Reading…' : 'Read from file' }}
         </button>
       </div>
     </div>

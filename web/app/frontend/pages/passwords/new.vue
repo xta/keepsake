@@ -1,5 +1,5 @@
 <script setup>
-import { Link, useForm } from '@inertiajs/vue3'
+import { Head, Link, useForm } from '@inertiajs/vue3'
 import AppLayout from '../../layouts/AppLayout.vue'
 defineOptions({ layout: AppLayout })
 
@@ -7,6 +7,7 @@ const form = useForm({ email_address: '' })
 </script>
 
 <template>
+  <Head title="Reset your password" />
   <div style="max-width: 24rem; margin: 2rem auto;">
     <h1>Reset your password</h1>
     <p class="muted" style="margin: .5rem 0 1.5rem; font-size: .9rem;">

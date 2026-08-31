@@ -1,5 +1,5 @@
 <script setup>
-import { Link, router } from '@inertiajs/vue3'
+import { Head, Link, router } from '@inertiajs/vue3'
 import { ref } from 'vue'
 import AppLayout from '../../layouts/AppLayout.vue'
 import { bytes, recordedAt } from '../../lib/format'
@@ -22,6 +22,7 @@ function apply() {
 </script>
 
 <template>
+  <Head :title="`Scan ${library.label}`" />
   <div class="page-head">
     <div class="grow">
       <p class="sub" style="margin: 0 0 .3rem">

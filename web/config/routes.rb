@@ -12,7 +12,7 @@ Rails.application.routes.draw do
       post :refresh  # refetch index.json
     end
     resources :items, only: %i[ show update ] do
-      member { post :thumbnail }
+      member { post :enrich }
     end
 
     # Adopting media uploaded by another route. Only ever reachable on a

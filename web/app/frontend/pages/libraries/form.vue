@@ -1,5 +1,5 @@
 <script setup>
-import { Link, useForm, router } from '@inertiajs/vue3'
+import { Head, Link, useForm, router } from '@inertiajs/vue3'
 import { computed } from 'vue'
 import AppLayout from '../../layouts/AppLayout.vue'
 defineOptions({ layout: AppLayout })
@@ -45,6 +45,7 @@ function destroy() {
 </script>
 
 <template>
+  <Head :title="editing ? `${library.label} settings` : 'Add a library'" />
   <div style="max-width: 34rem; margin: 0 auto;">
     <div class="page-head">
       <div class="grow">

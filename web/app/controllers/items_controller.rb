@@ -60,9 +60,12 @@ class ItemsController < ApplicationController
     redirect_to library_item_path(params[:library_id], params[:id]), alert: e.message
   end
 
-  # Regenerate a still for one file. The sweep does this in bulk; this is for
-  # the single video you are looking at that has not got one.
-  def thumbnail
+  # Ask the file itself for everything it can still tell us: the recording
+  # date and runtime out of its own header, and a still if it has none.
+  #
+  # The sweep does this across a library; this is for the one video you are
+  # looking at. Only fills what is absent -- nothing you typed is overwritten.
+  def enrich
     library = Current.user.libraries.find_by(id: params[:library_id])
     raise ActionController::RoutingError, "Not Found" unless library&.viewable_by?(Current.user)
     raise ActionController::RoutingError, "Not Found" unless library.access_read_write?
@@ -70,17 +73,51 @@ class ItemsController < ApplicationController
     item = library.catalog&.items&.find_by(id: params[:id])
     raise ActionController::RoutingError, "Not Found" unless item
 
-    filename = Keepsake::Thumbnailer.new(library.client).call(item.path)
-    if filename.nil?
-      return redirect_to library_item_path(library, item),
-        alert: "Could not render a still from this file."
+    client = library.client
+    sidecar = client.get_json(Keepsake::Media.sidecar_key_for(item.path))
+    raise ActionController::RoutingError, "Not Found" if sidecar.nil?
+
+    found = []
+    additions = {}
+
+    # Costs a couple of ranged reads. No decode, no download.
+    header = Keepsake::MovieHeader.read(Keepsake::RangeReader.new(client, item.path))
+    if header
+      if sidecar["recorded_at"].blank? && header.recorded_at.present?
+        additions["recorded_at"] = header.recorded_at
+        found << "recorded #{header.recorded_at}"
+      end
+      if sidecar["duration_s"].blank? && header.duration_s.present?
+        additions["duration_s"] = header.duration_s
+        found << "#{header.duration_s.round}s long"
+      end
     end
 
-    merged = Keepsake::Sidecar.update!(library.client, item.path, { "thumbnail" => filename })
-    Keepsake::IndexBuilder.new(library.client).replace_entry(item.path, merged)
-    item.update!(thumbnail: filename, sidecar: merged)
+    if item.thumbnail_key.blank? && Keepsake::Media.video?(item.path)
+      filename = Keepsake::Thumbnailer.new(client).call(item.path)
+      if filename
+        additions["thumbnail"] = filename
+        found << "a thumbnail"
+      end
+    end
 
-    redirect_to library_item_path(library, item), notice: "Thumbnail created."
+    if additions.empty?
+      return redirect_to library_item_path(library, item),
+        notice: header ? "Nothing further in the file." : "This file carries no readable metadata."
+    end
+
+    merged = Keepsake::Sidecar.fill_absent(sidecar, additions)
+    client.put_json(Keepsake::Media.sidecar_key_for(item.path), merged)
+    Keepsake::IndexBuilder.new(client).replace_entry(item.path, merged)
+
+    item.update!(
+      recorded_at: merged["recorded_at"],
+      duration_s: merged["duration_s"],
+      thumbnail: merged["thumbnail"],
+      sidecar: merged
+    )
+
+    redirect_to library_item_path(library, item), notice: "Found #{found.to_sentence}."
   rescue Keepsake::StorageError => e
     redirect_to library_item_path(params[:library_id], params[:id]), alert: e.message
   end

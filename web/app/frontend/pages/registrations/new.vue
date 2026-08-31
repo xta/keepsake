@@ -1,5 +1,5 @@
 <script setup>
-import { Link, useForm } from '@inertiajs/vue3'
+import { Head, Link, useForm } from '@inertiajs/vue3'
 import AppLayout from '../../layouts/AppLayout.vue'
 defineOptions({ layout: AppLayout })
 
@@ -17,6 +17,7 @@ const form = useForm({
 </script>
 
 <template>
+  <Head title="Create your account" />
   <div style="max-width: 24rem; margin: 2rem auto;">
     <template v-if="unusableReason">
       <h1>This invitation cannot be used</h1>
