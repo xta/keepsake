@@ -72,33 +72,27 @@ test:
 # the values provided in this file. Alternatively, you can specify a connection
 # URL environment variable explicitly:
 #
-#   production:
-#     url: <%= ENV["MY_APP_DATABASE_URL"] %>
+#   # Every production database comes from the environment. Rails' generated
+# default hardcodes names and no host, which silently ignores DATABASE_URL and
+# falls back to a local Unix socket -- there is no local Postgres in the
+# container, so that fails at boot with a confusing socket error.
 #
-# Connection URLs for non-primary databases can also be configured using
-# environment variables. The variable name is formed by concatenating the
-# connection name with `_DATABASE_URL`. For example:
-#
-#   CACHE_DATABASE_URL="postgres://cacheuser:cachepass@localhost/cachedatabase"
-#
-# Read https://guides.rubyonrails.org/configuring.html#configuring-a-database
-# for a full overview on how database connection configuration can be specified.
-#
+# Solid Cache, Queue and Cable each get their own database on the same server.
+# They are tiny, and keeping queue churn out of the app's tables is worth the
+# two lines. All four URLs are derived from one password in .kamal/secrets.
 production:
   primary: &primary_production
     <<: *default
-    database: keepsake_web_production
-    username: keepsake_web
-    password: <%= ENV["KEEPSAKE_WEB_DATABASE_PASSWORD"] %>
+    url: <%= ENV["DATABASE_URL"] %>
   cache:
     <<: *primary_production
-    database: keepsake_web_production_cache
+    url: <%= ENV["CACHE_DATABASE_URL"] %>
     migrations_paths: db/cache_migrate
   queue:
     <<: *primary_production
-    database: keepsake_web_production_queue
+    url: <%= ENV["QUEUE_DATABASE_URL"] %>
     migrations_paths: db/queue_migrate
   cable:
     <<: *primary_production
-    database: keepsake_web_production_cable
+    url: <%= ENV["CABLE_DATABASE_URL"] %>
     migrations_paths: db/cable_migrate

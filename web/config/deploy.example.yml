@@ -16,6 +16,9 @@ proxy:
     # real domain's DNS is moving or broken.
     # - keepsake.203.0.113.10.sslip.io
 
+# ghcr.io rejects an image without an owner namespace.
+image: your-github-account/keepsake
+
 registry:
   username: your-registry-username
 
