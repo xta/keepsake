@@ -55,6 +55,8 @@ class Library < ApplicationRecord
 
   def verified? = last_verified_at.present? && last_error.blank?
 
+  def sweeping? = sweep_state == "running"
+
   private
     # Everything here comes off a clipboard, out of a provider's console. The
     # common mistakes are mechanical -- a trailing slash, an s3:// scheme, a

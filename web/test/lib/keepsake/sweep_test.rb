@@ -54,14 +54,21 @@ class Keepsake::SweepTest < ActiveSupport::TestCase
       "an existing sidecar is the source of truth and must not be rewritten"
   end
 
-  test "adopting leaves the media files alone" do
+  test "a sweep never modifies a file that was already there" do
     add_media("media/2026/from-my-phone.mp4")
-    before = media_digests
+    before = digests
 
     Keepsake::Sweep.new(@library).apply
 
-    # Byte-for-byte identical. A sweep only ever adds .json files.
-    assert_equal before, media_digests
+    after = digests
+    # A sweep only ever adds. Every file that existed beforehand must be
+    # byte-for-byte what it was -- media above all, but sidecars and existing
+    # thumbnails too, except where a sidecar was deliberately filled in.
+    before.each do |path, digest|
+      next if path.end_with?(".json") # backfill may legitimately add fields
+      assert_equal digest, after[path], "#{path} was modified"
+    end
+    assert_equal before.keys.size, (after.keys & before.keys).size, "a file disappeared"
   end
 
   test "a read-only library refuses to write" do
@@ -98,12 +105,80 @@ class Keepsake::SweepTest < ActiveSupport::TestCase
     assert_includes kinds, "no_extension"
   end
 
+  test "a sweep fills in a runtime that was absent" do
+    strip_field("media/2026/piano-recital.mp4.json", "duration_s")
+
+    Keepsake::Sweep.new(@library, thumbnails: false).apply
+    sidecar = read_sidecar("media/2026/piano-recital.mp4.json")
+
+    assert_equal 4.0, sidecar["duration_s"], "read from the file's own mvhd box"
+  end
+
+  test "a sweep never overwrites a value somebody entered" do
+    # A date read from a header is a good guess. A date a person typed is a
+    # decision, and the two must not be confused.
+    write_field("media/2026/piano-recital.mp4.json", "recorded_at", "1999-01-01")
+
+    Keepsake::Sweep.new(@library, thumbnails: false).apply
+
+    assert_equal "1999-01-01", read_sidecar("media/2026/piano-recital.mp4.json")["recorded_at"]
+  end
+
+  test "a sweep renders a thumbnail for a video that has none" do
+    skip "ffmpeg not installed" unless Keepsake::Thumbnailer.available?
+
+    # vacation-day1 has no thumbnail in the fixtures.
+    assert_not File.exist?(File.join(@dir, "media/2026/vacation-day1.mp4.jpg"))
+
+    result = Keepsake::Sweep.new(@library).apply
+
+    assert_includes result[:thumbnailed], "media/2026/vacation-day1.mp4"
+    assert File.size(File.join(@dir, "media/2026/vacation-day1.mp4.jpg")).positive?
+
+    # SPEC: the sidecar records which extension exists, so a client reading
+    # index.json does not have to probe for it.
+    assert_equal "vacation-day1.mp4.jpg", read_sidecar("media/2026/vacation-day1.mp4.json")["thumbnail"]
+  end
+
+  test "a sweep leaves an existing thumbnail alone" do
+    skip "ffmpeg not installed" unless Keepsake::Thumbnailer.available?
+    path = File.join(@dir, "media/2026/piano-recital.mp4.jpg")
+    before = Digest::SHA256.file(path).hexdigest
+
+    Keepsake::Sweep.new(@library).apply
+
+    assert_equal before, Digest::SHA256.file(path).hexdigest
+  end
+
+  test "images are not sent to ffmpeg" do
+    skip "ffmpeg not installed" unless Keepsake::Thumbnailer.available?
+
+    # A phone library is mostly HEIC, which ffmpeg will not reliably decode.
+    assert_nil Keepsake::Thumbnailer.new(@library.client).call("media/2026/family-photo.heic")
+  end
+
   private
-    # Every non-JSON file, by content. Directories are excluded: their size
-    # changes when a file is added to them, which says nothing about the media.
-    def media_digests
+    def read_sidecar(key) = JSON.parse(File.read(File.join(@dir, key)))
+
+    def strip_field(key, field)
+      path = File.join(@dir, key)
+      data = JSON.parse(File.read(path))
+      data.delete(field)
+      File.write(path, JSON.pretty_generate(data))
+    end
+
+    def write_field(key, field, value)
+      path = File.join(@dir, key)
+      data = JSON.parse(File.read(path))
+      data[field] = value
+      File.write(path, JSON.pretty_generate(data))
+    end
+
+    # Every file, by content. Directories are excluded: their size changes when
+    # a file is added to them, which says nothing about the contents.
+    def digests
       Dir.glob(File.join(@dir, "**/*"))
-        .select { |f| File.file?(f) && !f.end_with?(".json") }
+        .select { |f| File.file?(f) }
         .to_h { |f| [ f.delete_prefix(@dir), Digest::SHA256.file(f).hexdigest ] }
     end
 

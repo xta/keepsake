@@ -11,7 +11,9 @@ Rails.application.routes.draw do
       post :verify   # "Test connection"
       post :refresh  # refetch index.json
     end
-    resources :items, only: %i[ show update ]
+    resources :items, only: %i[ show update ] do
+      member { post :thumbnail }
+    end
 
     # Adopting media uploaded by another route. Only ever reachable on a
     # library whose key can write.

@@ -24,21 +24,14 @@ module Libraries
     end
 
     def create
-      result = Keepsake::Sweep.new(@library).apply
+      return redirect_to(library_path(@library), alert: "A scan is already running.") if @library.sweeping?
 
-      # The cached catalog is now behind the bucket it mirrors.
-      Keepsake::CatalogSync.new(@library).call(force: true)
+      # Enqueued, not run here: reading every sidecar and decoding a frame per
+      # video will outlast any request.
+      SweepJob.perform_later(@library)
+      @library.update!(sweep_state: "running", sweep_message: "Queued", sweep_started_at: Time.current)
 
-      notice =
-        if result[:adopted].empty?
-          "Nothing new to adopt. Catalog rebuilt with #{result[:count]} #{'item'.pluralize(result[:count])}."
-        else
-          "Adopted #{result[:adopted].size} #{'file'.pluralize(result[:adopted].size)}."
-        end
-
-      redirect_to library_path(@library), notice: notice
-    rescue Keepsake::Sweep::ReadOnly, Keepsake::StorageError => e
-      redirect_to library_path(@library), alert: e.message
+      redirect_to library_path(@library), notice: "Scanning. This page will keep you posted."
     end
 
     private

@@ -105,6 +105,39 @@ module Keepsake
       raise StorageError.new(readable(e), cause_class: e.class.name)
     end
 
+    # A URL something outside the browser can read -- ffmpeg, for instance.
+    # For a real bucket that is just a presigned URL, which ffmpeg range-reads,
+    # so seeking to one frame does not download the video.
+    def readable_source(key) = presigned_url(key, expires_in: 1.hour)
+
+    def put_binary(key, data, content_type:)
+      client.put_object(bucket: library.bucket, key: key_for(key), body: data, content_type: content_type)
+      true
+    rescue Aws::Errors::ServiceError, Seahorse::Client::NetworkingError => e
+      raise StorageError.new(readable(e), cause_class: e.class.name)
+    end
+
+    def object_size(key)
+      client.head_object(bucket: library.bucket, key: key_for(key)).content_length
+    rescue Aws::S3::Errors::NoSuchKey, Aws::S3::Errors::NotFound
+      nil
+    rescue Aws::Errors::ServiceError, Seahorse::Client::NetworkingError => e
+      raise StorageError.new(readable(e), cause_class: e.class.name)
+    end
+
+    # A byte range, which is what makes reading a movie header cheap: the
+    # `mvhd` box is a few hundred bytes, and fetching it never downloads the
+    # video.
+    def get_range(key, first, last)
+      client.get_object(
+        bucket: library.bucket, key: key_for(key), range: "bytes=#{first}-#{last}"
+      ).body.read
+    rescue Aws::S3::Errors::NoSuchKey, Aws::S3::Errors::NotFound
+      nil
+    rescue Aws::Errors::ServiceError, Seahorse::Client::NetworkingError => e
+      raise StorageError.new(readable(e), cause_class: e.class.name)
+    end
+
     def key_for(path) = "#{library.prefix}#{path}"
 
     private

@@ -87,6 +87,28 @@ module Keepsake
       true
     end
 
+    # `presigned_url` returns a route this app serves, which is right for a
+    # browser and useless to a subprocess. ffmpeg gets the file itself.
+    def readable_source(key) = "file://#{path_for(key)}"
+
+    def put_binary(key, data, content_type: nil)
+      path = path_for(key)
+      path.dirname.mkpath
+      path.binwrite(data)
+      true
+    end
+
+    def object_size(key)
+      path = path_for(key)
+      path.file? ? path.size : nil
+    end
+
+    def get_range(key, first, last)
+      path = path_for(key)
+      return nil unless path.file?
+      IO.binread(path, last - first + 1, first)
+    end
+
     def key_for(path) = "#{library.prefix}#{path}"
 
     # Resolves a key to a real file, refusing anything that escapes the root.

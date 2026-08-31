@@ -76,6 +76,20 @@ module Keepsake
       merged
     end
 
+    # Fill only what is absent. A backfill must never overwrite something a
+    # person typed: a date read out of a file header is a good guess, and a
+    # date somebody entered is a decision.
+    def fill_absent(current, additions)
+      merged = (current || {}).dup
+      additions.each do |field, value|
+        next if value.nil?
+        key = field.to_s
+        next if merged[key].present?
+        merged[key] = value
+      end
+      merged
+    end
+
     # Read the sidecar as it is right now, apply changes, write it back.
     def update!(client, media_key, changes)
       key = Media.sidecar_key_for(media_key)

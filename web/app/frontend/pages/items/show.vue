@@ -1,5 +1,5 @@
 <script setup>
-import { Link, useForm } from '@inertiajs/vue3'
+import { Link, useForm, router } from '@inertiajs/vue3'
 import { ref, computed } from 'vue'
 import AppLayout from '../../layouts/AppLayout.vue'
 import { bytes, duration, recordedAt } from '../../lib/format'
@@ -34,6 +34,14 @@ const form = useForm({
   location: props.item.sidecar?.location || '',
   notes: props.item.sidecar?.notes || '',
 })
+
+const thumbing = ref(false)
+function makeThumbnail() {
+  thumbing.value = true
+  router.post(`/libraries/${props.library.id}/items/${props.item.id}/thumbnail`, {}, {
+    onFinish: () => { thumbing.value = false },
+  })
+}
 
 function save() {
   form.patch(`/libraries/${props.library.id}/items/${props.item.id}`, {
@@ -123,9 +131,16 @@ const extra = computed(() =>
           <dd>{{ Array.isArray(value) ? value.join(', ') : value }}</dd>
         </template>
       </dl>
-      <p style="margin: 1.25rem 0 0">
+      <div class="row" style="margin: 1.25rem 0 0">
         <a class="btn btn-sm" :href="item.downloadUrl">Download original</a>
-      </p>
+        <!-- Only when there is not one already, and only when the key can
+             write. A thumbnail is derived: making one costs a render, and
+             losing one costs nothing. -->
+        <button v-if="library.writable && !item.thumbnailUrl && item.kind === 'video'"
+                class="btn btn-sm" :disabled="thumbing" @click="makeThumbnail">
+          {{ thumbing ? 'Rendering…' : 'Create thumbnail' }}
+        </button>
+      </div>
     </div>
   </div>
 </template>

@@ -24,6 +24,9 @@ module LibrarySerializer
       accessKeyId: library.access_key_id,
       # Never the secret itself -- only enough to recognise which key is stored.
       secretHint: library.secret_hint,
+      sweepState: library.sweep_state,
+      sweepMessage: library.sweep_message,
+      sweeping: library.sweeping?,
       lastVerifiedAt: library.last_verified_at&.iso8601,
       lastError: library.last_error,
       verified: library.verified?

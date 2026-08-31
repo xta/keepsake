@@ -59,4 +59,29 @@ class ItemsController < ApplicationController
   rescue Keepsake::StorageError => e
     redirect_to library_item_path(params[:library_id], params[:id]), alert: e.message
   end
+
+  # Regenerate a still for one file. The sweep does this in bulk; this is for
+  # the single video you are looking at that has not got one.
+  def thumbnail
+    library = Current.user.libraries.find_by(id: params[:library_id])
+    raise ActionController::RoutingError, "Not Found" unless library&.viewable_by?(Current.user)
+    raise ActionController::RoutingError, "Not Found" unless library.access_read_write?
+
+    item = library.catalog&.items&.find_by(id: params[:id])
+    raise ActionController::RoutingError, "Not Found" unless item
+
+    filename = Keepsake::Thumbnailer.new(library.client).call(item.path)
+    if filename.nil?
+      return redirect_to library_item_path(library, item),
+        alert: "Could not render a still from this file."
+    end
+
+    merged = Keepsake::Sidecar.update!(library.client, item.path, { "thumbnail" => filename })
+    Keepsake::IndexBuilder.new(library.client).replace_entry(item.path, merged)
+    item.update!(thumbnail: filename, sidecar: merged)
+
+    redirect_to library_item_path(library, item), notice: "Thumbnail created."
+  rescue Keepsake::StorageError => e
+    redirect_to library_item_path(params[:library_id], params[:id]), alert: e.message
+  end
 end

@@ -1,62 +1,56 @@
 module Keepsake
-  # Adopts media that arrived by some other route -- a phone upload app, a
-  # desktop client, anything that puts files in the bucket without writing
-  # keepsake's metadata.
+  # Brings a bucket up to date with the convention, in four passes.
   #
-  # Two phases, always. `plan` reads and reports; `apply` writes. Nothing is
-  # written that was not shown first.
+  #   1. Adopt      media that has no sidecar (arrived via a phone app, say).
+  #   2. Backfill   recorded_at and duration_s from each movie's own header.
+  #   3. Thumbnail  any video that has no thumbnail companion.
+  #   4. Reindex    rebuild index.json from what is now in the bucket.
   #
-  # What it will do:  create a sidecar for media that has none, then rebuild
-  #                   index.json.
-  # What it will NOT do: overwrite an existing sidecar, touch a media file,
-  #                   delete anything, or guess a title or a date.
+  # Every pass only ever ADDS what is absent. Nothing overwrites a sidecar, a
+  # media file, a thumbnail that exists, or a field somebody typed.
   class Sweep
     class ReadOnly < StorageError; end
 
-    attr_reader :library
+    attr_reader :library, :log
 
-    def initialize(library)
+    def initialize(library, thumbnails: true)
       @library = library
+      @thumbnails = thumbnails
+      @log = []
     end
 
+    # Cheap: one listing, no object reads. Backfill is not previewed because
+    # deciding whether a field is absent means reading every sidecar, and a
+    # preview should not cost as much as the job.
     def plan
       survey = Survey.call(client)
 
       {
         adoptable: survey.unindexed.map { |key| describe(key, survey) },
+        missing_thumbnails: thumbnailable(survey).size,
         already_indexed: survey.indexed.size,
         problems: survey.problems,
         survey: survey
       }
     end
 
-    def apply
+    def apply(progress: nil)
       ensure_writable!
+      survey = Survey.call(client)
 
-      result = plan
-      survey = result[:survey]
-      written = []
+      adopted = adopt(survey, progress)
+      # Re-survey: the files just adopted now have sidecars to backfill into.
+      survey = Survey.call(client)
+      filled = backfill(survey, progress)
+      thumbed = @thumbnails ? generate_thumbnails(survey, progress) : []
 
-      survey.unindexed.each do |media_key|
-        sidecar_key = Media.sidecar_key_for(media_key)
-
-        # Never overwrite. A sidecar that appeared since the plan was made
-        # belongs to whoever wrote it, and it is the source of truth.
-        next if client.get_json(sidecar_key).present?
-
-        client.put_json(sidecar_key, Sidecar.build_stub(
-          media_key,
-          size_bytes: survey.sizes[media_key],
-          last_modified: survey.timestamps[media_key]
-        ))
-        written << media_key
-      end
-
-      # Rebuild from the bucket rather than from the plan, so anything another
-      # client wrote in the meantime is picked up too.
+      progress&.call("Rebuilding the catalog")
       document = IndexBuilder.new(client).call
 
-      { adopted: written, count: document["count"], problems: result[:problems] }
+      {
+        adopted: adopted, backfilled: filled, thumbnailed: thumbed,
+        count: document["count"], problems: survey.problems, log: @log
+      }
     end
 
     private
@@ -65,6 +59,85 @@ module Keepsake
       def ensure_writable!
         return if library.access_read_write?
         raise ReadOnly, "This library is set to read-only."
+      end
+
+      def adopt(survey, progress)
+        survey.unindexed.filter_map do |media_key|
+          sidecar_key = Media.sidecar_key_for(media_key)
+          # Re-checked at write time: a sidecar that appeared since the survey
+          # belongs to whoever wrote it.
+          next if client.get_json(sidecar_key).present?
+
+          progress&.call("Adopting #{media_key}")
+          client.put_json(sidecar_key, Sidecar.build_stub(
+            media_key,
+            size_bytes: survey.sizes[media_key],
+            last_modified: survey.timestamps[media_key]
+          ))
+          media_key
+        end
+      end
+
+      # Reads each movie's own header over byte ranges: a couple of requests
+      # and a few hundred bytes per file, no decode and no download.
+      def backfill(survey, progress)
+        survey.indexed.filter_map do |media_key|
+          next unless Media.video?(media_key)
+
+          sidecar_key = survey.sidecars.fetch(media_key)
+          sidecar = client.get_json(sidecar_key)
+          next if sidecar.nil?
+          next if sidecar["recorded_at"].present? && sidecar["duration_s"].present?
+
+          progress&.call("Reading #{media_key}")
+          header = MovieHeader.read(RangeReader.new(client, media_key, size: survey.sizes[media_key]))
+          next if header.nil?
+
+          # Only absent fields: a date somebody typed outranks one from a header.
+          merged = Sidecar.fill_absent(sidecar, {
+            "recorded_at" => header.recorded_at,
+            "duration_s" => header.duration_s
+          })
+          next if merged == sidecar
+
+          client.put_json(sidecar_key, merged)
+          media_key
+        end
+      end
+
+      def thumbnailable(survey)
+        survey.media.select do |key|
+          Media.video?(key) && !survey.thumbnails.key?(key)
+        end
+      end
+
+      def generate_thumbnails(survey, progress)
+        candidates = thumbnailable(survey)
+        return [] if candidates.empty?
+
+        thumbnailer = Thumbnailer.new(client)
+
+        candidates.filter_map do |media_key|
+          progress&.call("Rendering a still for #{media_key}")
+          filename = thumbnailer.call(media_key)
+          next if filename.nil?
+
+          # The sidecar records which extension exists, so a client reading
+          # index.json does not have to probe for it.
+          sidecar_key = survey.sidecars[media_key]
+          if sidecar_key && (sidecar = client.get_json(sidecar_key))
+            client.put_json(sidecar_key, Sidecar.fill_absent(sidecar, { "thumbnail" => filename }))
+          end
+          media_key
+        rescue Thumbnailer::MissingFfmpeg => e
+          @log << e.message
+          # No point trying the rest; the tool is simply not there.
+          break
+        rescue StorageError => e
+          # SPEC: thumbnails are optional and derived. Report and carry on.
+          @log << "#{media_key}: #{e.message}"
+          next
+        end
       end
 
       def describe(media_key, survey)
