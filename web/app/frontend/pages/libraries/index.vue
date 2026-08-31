@@ -11,7 +11,7 @@ defineProps({ libraries: Array })
   <div class="page-head">
     <div class="grow">
       <h1>Your libraries</h1>
-      <p class="sub">Each library is one bucket you hold credentials for.</p>
+      
     </div>
     <Link class="btn btn-primary" href="/libraries/new">Add a library</Link>
   </div>
@@ -19,9 +19,7 @@ defineProps({ libraries: Array })
   <div v-if="!libraries.length" class="empty">
     <h2>No libraries yet</h2>
     <p>
-      Add a bucket and this page fills with what is in it. You will need a
-      region, an access key id and a secret &mdash; ideally a
-      <strong>read-only key scoped to the one bucket</strong>.
+      Connect a bucket to see what is in it. Use a read-only key if you can.
     </p>
     <p style="margin-top: 1.25rem">
       <Link class="btn btn-primary" href="/libraries/new">Add your first library</Link>

@@ -27,7 +27,7 @@ class RegistrationsController < ApplicationController
     if user.save
       @invite.claim!(user)
       start_new_session_for user
-      redirect_to libraries_path, notice: "Welcome. Add a bucket to get started."
+      redirect_to libraries_path, notice: "Add a bucket to get started."
     else
       redirect_to invite_path(@invite.token), inertia: { errors: user.errors }
     end

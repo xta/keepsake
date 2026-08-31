@@ -9,9 +9,6 @@ const form = useForm({ email_address: '', password: '' })
 <template>
   <div style="max-width: 24rem; margin: 2rem auto;">
     <h1>Sign in</h1>
-    <p class="muted" style="margin: .5rem 0 1.5rem; font-size: .9rem;">
-      Browse and stream the video libraries in your own object storage.
-    </p>
 
     <form class="card card-pad" @submit.prevent="form.post('/session')">
       <div class="field">

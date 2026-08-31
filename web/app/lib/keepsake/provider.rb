@@ -85,27 +85,27 @@ module Keepsake
           fields: %w[region bucket],
           region_label: "Region",
           region_hint: "e.g. us-east-1",
-          key_help: "Create an IAM user with s3:GetObject and s3:ListBucket on this bucket only."
+          key_help: "An IAM user with s3:GetObject and s3:ListBucket on this bucket."
         },
         "b2" => {
           label: "Backblaze B2",
           fields: %w[region bucket],
           region_label: "S3 endpoint or region",
-          region_hint: "Paste your endpoint (https://s3.us-west-001.backblazeb2.com) or just the region (us-west-001). Either works.",
-          key_help: "Create an Application Key restricted to this bucket with listFiles and readFiles. Do not grant deleteFiles."
+          region_hint: "Endpoint or region. Either works.",
+          key_help: "An Application Key limited to this bucket, with listFiles and readFiles. Not deleteFiles."
         },
         "r2" => {
           label: "Cloudflare R2",
           fields: %w[account_id bucket],
-          region_hint: "R2 has no regions; this is set to \"auto\" for you.",
-          key_help: "Create an R2 API token scoped to this bucket with Object Read permission."
+          region_hint: "R2 has no regions.",
+          key_help: "An R2 API token for this bucket with Object Read."
         },
         "other" => {
           label: "Other S3-compatible",
           fields: %w[endpoint region bucket],
           region_label: "Region",
-          region_hint: "Whatever region your provider signs with; try us-east-1.",
-          key_help: "Use a read-only key scoped to this bucket if your provider supports it."
+          region_hint: "Whatever your provider signs with. Try us-east-1.",
+          key_help: "A read-only key for this bucket, if your provider does those."
         },
         "local" => {
           label: "Local directory (development only)",

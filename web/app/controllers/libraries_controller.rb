@@ -22,7 +22,7 @@ class LibrariesController < ApplicationController
     library = Current.user.libraries.new(library_params)
 
     if library.save
-      redirect_to library_path(library), notice: "Library added. Try a connection test."
+      redirect_to library_path(library), notice: "Library added."
     else
       redirect_to new_library_path, inertia: { errors: library.errors }
     end
@@ -47,7 +47,7 @@ class LibrariesController < ApplicationController
     @library.destroy!
     # Deleting a library removes stored credentials and a cached catalog. It
     # never touches the bucket -- the archive outlives this app by design.
-    redirect_to libraries_path, notice: "#{@library.label} removed. Nothing in the bucket was changed."
+    redirect_to libraries_path, notice: "#{@library.label} removed. The bucket is untouched."
   end
 
   # The grid.
@@ -94,7 +94,7 @@ class LibrariesController < ApplicationController
       "connected, but this bucket has no index.json yet"
     end
 
-    redirect_to edit_library_path(@library), notice: "Connection works — #{state}. Nothing was saved."
+    redirect_to edit_library_path(@library), notice: "Connection works. #{state}."
   rescue Keepsake::StorageError => e
     redirect_to edit_library_path(@library), alert: e.message
   end

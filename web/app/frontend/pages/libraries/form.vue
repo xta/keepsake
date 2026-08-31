@@ -49,7 +49,7 @@ function destroy() {
     <div class="page-head">
       <div class="grow">
         <h1>{{ editing ? 'Edit library' : 'Add a library' }}</h1>
-        <p class="sub">Credentials are encrypted before they are stored, and the secret is never sent back to your browser.</p>
+        
       </div>
     </div>
 
@@ -61,7 +61,7 @@ function destroy() {
       <div class="field">
         <label for="label">Name</label>
         <input id="label" v-model="form.label" type="text" required placeholder="Family videos" />
-        <div class="hint">Just a label for you. Any name works.</div>
+        <div class="hint">Anything you like.</div>
         <div v-if="form.errors.label" class="err">{{ form.errors.label }}</div>
       </div>
 
@@ -75,7 +75,7 @@ function destroy() {
       <div v-if="shows('endpoint')" class="field">
         <label for="endpoint">Endpoint</label>
         <input id="endpoint" v-model="form.endpoint" type="text" placeholder="https://s3.example.com" />
-        <div class="hint">Must be https. Addresses on private networks are refused.</div>
+        <div class="hint">https only.</div>
         <div v-if="form.errors.endpoint" class="err">{{ form.errors.endpoint }}</div>
       </div>
 
@@ -83,7 +83,7 @@ function destroy() {
         <label for="account">Cloudflare account id</label>
         <input id="account" v-model="form.account_id" type="text"
                :placeholder="library ? 'leave blank to keep the current endpoint' : ''" />
-        <div class="hint">Your endpoint becomes https://&lt;account id&gt;.r2.cloudflarestorage.com</div>
+        <div class="hint">Becomes https://&lt;account id&gt;.r2.cloudflarestorage.com</div>
       </div>
 
       <div v-if="shows('region')" class="field">
@@ -102,7 +102,7 @@ function destroy() {
       <div class="field">
         <label for="prefix">Key prefix <span class="muted">(optional)</span></label>
         <input id="prefix" v-model="form.prefix" type="text" placeholder="archive/" />
-        <div class="hint">Only if the library lives under a subpath rather than at the bucket root.</div>
+        <div class="hint">If your files sit under a subpath.</div>
       </div>
 
       <hr style="border: 0; border-top: 1px solid var(--border); margin: 1.5rem 0" />
@@ -117,7 +117,7 @@ function destroy() {
         <label for="secret">Secret access key</label>
         <input id="secret" v-model="form.secret_access_key" type="password" autocomplete="off"
                :required="!editing" :placeholder="editing ? library.secretHint : ''" />
-        <div class="hint" v-if="editing">Stored and encrypted. Leave blank to keep the current key.</div>
+        <div class="hint" v-if="editing">Leave blank to keep the current key.</div>
         <div class="hint" v-else>{{ meta.key_help }}</div>
         <div v-if="form.errors.secret_access_key" class="err">{{ form.errors.secret_access_key }}</div>
       </div>
@@ -125,13 +125,10 @@ function destroy() {
       <div class="field">
         <label for="access">This key can</label>
         <select id="access" v-model="form.access_level">
-          <option value="read_only">Read only &mdash; recommended</option>
+          <option value="read_only">Read only</option>
           <option value="read_write">Read and write</option>
         </select>
-        <div class="hint">
-          Viewing only needs read. A read-only key scoped to this one bucket
-          means a breach of this app cannot damage your archive.
-        </div>
+        <div class="hint">Viewing only needs read.</div>
       </div>
 
       <div v-if="form.provider === 'other'" class="field">
@@ -152,8 +149,7 @@ function destroy() {
         </button>
       </div>
       <p v-if="editing" class="hint" style="margin-top: .75rem">
-        Removing a library deletes its stored credentials and cached catalog here.
-        It never touches the bucket.
+        Removing forgets the bucket here. It leaves the bucket alone.
       </p>
     </form>
   </div>

@@ -56,10 +56,7 @@ const extra = computed(() =>
       <img v-if="item.thumbnailUrl" :src="item.thumbnailUrl" :alt="item.displayTitle" class="poster" />
       <div class="cannot-body">
         <h2>{{ failed ? 'Your browser could not play this file' : `This browser cannot play ${item.formatLabel} files` }}</h2>
-        <p class="muted">
-          keepsake stores your files exactly as they were uploaded and never
-          converts them. Download the original to watch it in a media player.
-        </p>
+        <p class="muted">Files are kept as uploaded, never converted. Download it to watch elsewhere.</p>
         <!-- A signed content-disposition is what makes this download rather
              than navigate: cross-origin `download` attributes are ignored. -->
         <a class="btn btn-primary" :href="item.downloadUrl">Download {{ item.formatLabel }}</a>

@@ -59,18 +59,18 @@ function refresh() {
   <div v-if="catalogMissing" class="empty">
     <h2>This bucket has no catalog yet</h2>
     <p>
-      keepsake reads a single <code>index.json</code> at the bucket root, which
-      lists every file and its metadata. This bucket does not have one.
+      keepsake reads one <code>index.json</code> at the bucket root. This bucket
+      has not got one.
     </p>
     <p>
-      Build it with the command line tool: <code>keepsake sync --apply</code>.
-      Your videos are not lost &mdash; they are simply not catalogued yet.
+      Run <code>keepsake sync --apply</code> to build it. Your videos are fine,
+      just not catalogued.
     </p>
   </div>
 
   <div v-else-if="!items.length" class="empty">
     <h2>Nothing here yet</h2>
-    <p>The catalog is empty. Upload some video and run <code>keepsake sync --apply</code>.</p>
+    <p>The catalog is empty.</p>
   </div>
 
   <div v-else class="grid">
