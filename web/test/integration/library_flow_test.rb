@@ -1,4 +1,6 @@
 require "test_helper"
+require "fileutils"
+require "tmpdir"
 
 # Walks the whole app the way a person does: claim an invite, add a library,
 # browse the grid, open an item. Runs entirely against the bundled fixture
@@ -192,6 +194,66 @@ class LibraryFlowTest < ActionDispatch::IntegrationTest
 
     get dev_media_path(library_id: library.id, key: "../../../../etc/passwd")
     assert_response :not_found
+  end
+
+  test "write features are hidden on a read-only library, not merely refused" do
+    user = signed_in_user
+    library = create_library(user) # read_only by default
+
+    # Not a 403: a read-only library should not advertise a door it cannot open.
+    get library_sweep_path(library)
+    assert_response :not_found
+
+    post library_sweep_path(library)
+    assert_response :not_found
+
+    get library_path(library)
+    assert_not inertia_props["library"]["writable"],
+      "the page must know not to offer write features"
+  end
+
+  test "editing an item is refused on a read-only library" do
+    user = signed_in_user
+    library = create_library(user)
+    get library_path(library)
+    item = library.reload.catalog.items.first
+
+    patch library_item_path(library, item), params: { title: "Should not stick" }
+    assert_response :not_found
+  end
+
+  test "a writable library offers the sweep and can edit an item" do
+    user = signed_in_user
+    dir = Dir.mktmpdir
+    FileUtils.cp_r(Rails.root.join("test/fixtures/library").to_s + "/.", dir)
+    library = user.libraries.create!(
+      label: "Writable", provider: "local", bucket: dir,
+      access_key_id: "k", secret_access_key: "s", access_level: "read_write"
+    )
+
+    get library_path(library)
+    assert inertia_props["library"]["writable"]
+
+    get library_sweep_path(library)
+    assert_response :success
+
+    item = library.reload.catalog.items.find_by(path: "media/2026/untitled-clip.mp4")
+    patch library_item_path(library, item), params: { title: "Named at last" }
+    assert_redirected_to library_item_path(library, item)
+
+    # Written through to the bucket, which is the source of truth...
+    sidecar = JSON.parse(File.read(File.join(dir, "media/2026/untitled-clip.mp4.json")))
+    assert_equal "Named at last", sidecar["title"]
+
+    # ...reflected in the cached row...
+    assert_equal "Named at last", item.reload.title
+
+    # ...and amended in the catalog, so another client sees it too.
+    index = JSON.parse(File.read(File.join(dir, "index.json")))
+    entry = index["items"].find { |i| i["path"] == "media/2026/untitled-clip.mp4" }
+    assert_equal "Named at last", entry["title"]
+  ensure
+    FileUtils.remove_entry(dir) if dir
   end
 
   private

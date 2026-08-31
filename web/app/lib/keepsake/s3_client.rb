@@ -80,6 +80,31 @@ module Keepsake
       raise StorageError.new(readable(e), cause_class: e.class.name)
     end
 
+    # Fetch a JSON object, or nil when it is not there. Used to re-read a
+    # sidecar immediately before writing it, which is SPEC's concurrency rule.
+    def get_json(key)
+      response = client.get_object(bucket: library.bucket, key: key_for(key))
+      JSON.parse(response.body.read)
+    rescue Aws::S3::Errors::NoSuchKey, Aws::S3::Errors::NotFound
+      nil
+    rescue JSON::ParserError => e
+      raise StorageError.new("#{key} is not valid JSON (#{e.message})")
+    rescue Aws::Errors::ServiceError, Seahorse::Client::NetworkingError => e
+      raise StorageError.new(readable(e), cause_class: e.class.name)
+    end
+
+    def put_json(key, document)
+      client.put_object(
+        bucket: library.bucket,
+        key: key_for(key),
+        body: JSON.pretty_generate(document) + "\n",
+        content_type: "application/json"
+      )
+      true
+    rescue Aws::Errors::ServiceError, Seahorse::Client::NetworkingError => e
+      raise StorageError.new(readable(e), cause_class: e.class.name)
+    end
+
     def key_for(path) = "#{library.prefix}#{path}"
 
     private

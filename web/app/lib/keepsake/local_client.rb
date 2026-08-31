@@ -72,6 +72,21 @@ module Keepsake
       keys
     end
 
+    def get_json(key)
+      path = path_for(key)
+      return nil unless path.file?
+      JSON.parse(path.read)
+    rescue JSON::ParserError => e
+      raise StorageError.new("#{key} is not valid JSON (#{e.message})")
+    end
+
+    def put_json(key, document)
+      path = path_for(key)
+      path.dirname.mkpath
+      path.write(JSON.pretty_generate(document) + "\n")
+      true
+    end
+
     def key_for(path) = "#{library.prefix}#{path}"
 
     # Resolves a key to a real file, refusing anything that escapes the root.

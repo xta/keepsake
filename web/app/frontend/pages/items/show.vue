@@ -1,5 +1,5 @@
 <script setup>
-import { Link } from '@inertiajs/vue3'
+import { Link, useForm } from '@inertiajs/vue3'
 import { ref, computed } from 'vue'
 import AppLayout from '../../layouts/AppLayout.vue'
 import { bytes, duration, recordedAt } from '../../lib/format'
@@ -27,6 +27,20 @@ const KNOWN = new Set([
   'schema', 'id', 'file', 'title', 'recorded_at', 'uploaded_at', 'duration_s',
   'size_bytes', 'media_type', 'sha256', 'thumbnail', 'path',
 ])
+const editing = ref(false)
+const form = useForm({
+  title: props.item.title || '',
+  recorded_at: props.item.recordedAt || '',
+  location: props.item.sidecar?.location || '',
+  notes: props.item.sidecar?.notes || '',
+})
+
+function save() {
+  form.patch(`/libraries/${props.library.id}/items/${props.item.id}`, {
+    onSuccess: () => { editing.value = false },
+  })
+}
+
 const extra = computed(() =>
   Object.entries(props.item.sidecar || {})
     .filter(([k, v]) => !KNOWN.has(k) && v != null && v !== '' && !(Array.isArray(v) && !v.length))
@@ -65,8 +79,39 @@ const extra = computed(() =>
   </div>
 
   <div class="detail">
-    <div class="card card-pad">
-      <h2 style="margin-bottom: .9rem">Details</h2>
+    <div v-if="editing" class="card card-pad">
+      <h2 style="margin-bottom: .9rem">Edit</h2>
+      <div class="field">
+        <label for="title">Title</label>
+        <input id="title" v-model="form.title" type="text" autofocus />
+      </div>
+      <div class="field">
+        <label for="recorded">Recorded</label>
+        <input id="recorded" v-model="form.recorded_at" type="text" placeholder="YYYY-MM-DD" />
+        <div class="hint">Leave blank if you do not know.</div>
+      </div>
+      <div class="field">
+        <label for="location">Location</label>
+        <input id="location" v-model="form.location" type="text" />
+      </div>
+      <div class="field">
+        <label for="notes">Notes</label>
+        <textarea id="notes" v-model="form.notes" rows="3"></textarea>
+      </div>
+      <div class="row">
+        <button class="btn btn-primary" :disabled="form.processing" @click="save">Save</button>
+        <button class="btn" type="button" @click="editing = false">Cancel</button>
+      </div>
+      <p class="hint" style="margin-top: .75rem">
+        Saved into the bucket, alongside the video.
+      </p>
+    </div>
+
+    <div v-else class="card card-pad">
+      <div class="row" style="justify-content: space-between; margin-bottom: .9rem">
+        <h2>Details</h2>
+        <button v-if="library.writable" class="btn btn-sm" @click="editing = true">Edit</button>
+      </div>
       <dl>
         <template v-if="item.recordedAt"><dt>Recorded</dt><dd>{{ recordedAt(item.recordedAt) }}</dd></template>
         <template v-if="item.durationS"><dt>Length</dt><dd>{{ duration(item.durationS) }}</dd></template>

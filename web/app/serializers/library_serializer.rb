@@ -18,6 +18,9 @@ module LibrarySerializer
       prefix: library.prefix,
       forcePathStyle: library.force_path_style,
       accessLevel: library.access_level,
+      # Drives whether write features are shown at all. A read-only library
+      # should not be offered a button it cannot use.
+      writable: library.access_read_write?,
       accessKeyId: library.access_key_id,
       # Never the secret itself -- only enough to recognise which key is stored.
       secretHint: library.secret_hint,

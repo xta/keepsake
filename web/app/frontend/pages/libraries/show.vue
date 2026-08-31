@@ -50,6 +50,9 @@ function refresh() {
       <button class="btn" :disabled="refreshing" @click="refresh">
         {{ refreshing ? 'Refreshing…' : 'Refresh' }}
       </button>
+      <!-- Writing is only offered when the stored key can write. A read-only
+           library is not shown a button it would be refused. -->
+      <Link v-if="library.writable" class="btn" :href="`/libraries/${library.id}/sweep`">Scan for new files</Link>
       <Link class="btn" :href="`/libraries/${library.id}/edit`">Settings</Link>
     </div>
   </div>

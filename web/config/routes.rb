@@ -11,7 +11,11 @@ Rails.application.routes.draw do
       post :verify   # "Test connection"
       post :refresh  # refetch index.json
     end
-    resources :items, only: :show
+    resources :items, only: %i[ show update ]
+
+    # Adopting media uploaded by another route. Only ever reachable on a
+    # library whose key can write.
+    resource :sweep, only: %i[ show create ], module: :libraries
   end
 
   # The local-directory backend's byte server. Never drawn outside development
