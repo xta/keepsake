@@ -1,7 +1,17 @@
 namespace :keepsake do
   desc "Mint an invitation link. EMAIL is optional and advisory. HOST sets the link's origin."
   task invite: :environment do
-    host = ENV.fetch("HOST", "http://localhost:3000")
+    # APP_HOST is set per deployment; HOST overrides it for one-off use. A
+    # localhost default is right in development and useless in production,
+    # which is exactly where an invite link gets emailed to somebody.
+    host =
+      if ENV["HOST"].present?
+        ENV["HOST"]
+      elsif ENV["APP_HOST"].present?
+        ENV["APP_HOST"].start_with?("http") ? ENV["APP_HOST"] : "https://#{ENV['APP_HOST']}"
+      else
+        "http://localhost:3000"
+      end
 
     # The first invite on a fresh install has no creator, because there is
     # nobody yet. After that, attribute it to the first user unless told

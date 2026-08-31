@@ -34,3 +34,8 @@ ssh:
 accessories:
   db:
     host: 203.0.113.10      # normally the same server
+
+env:
+  clear:
+    # Used for absolute URLs: password reset emails, invite links.
+    APP_HOST: keepsake.example.com
