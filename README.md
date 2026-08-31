@@ -19,6 +19,7 @@ it one.
 | | |
 |---|---|
 | **[`cli/`](cli/)** | Python command line and terminal UI. Survey a bucket, adopt existing videos, upload new ones, fill in titles. |
+| **[`web/`](web/)** | Ruby on Rails multi-user viewer. Sign in, connect your own buckets, browse and stream. |
 
 These are sample implementations. Where an implementation and the spec disagree,
 defer to the spec.

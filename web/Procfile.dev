@@ -1,0 +1,5 @@
+# Rails is pinned to 3000 explicitly. Foreman hands the second process type
+# PORT+100, so without this `bin/dev` quietly serves the app on 3100 while
+# telling you it started on 3000.
+web: bin/rails s -p 3000
+vite: bin/vite dev

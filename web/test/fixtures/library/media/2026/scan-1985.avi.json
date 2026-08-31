@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "id": "f4d24144-04e4-4f2c-b32c-581ddb93eba0",
+  "file": "scan-1985.avi",
+  "uploaded_at": "2026-02-01T11:00:00Z",
+  "size_bytes": 61912,
+  "sha256": "8daf3ad61f731f57d10675d62c4c1a76b78507b1094d5bc498991712521809db",
+  "title": "Camcorder tape, birthday 1985",
+  "recorded_at": "1985-08-09",
+  "notes": "Digitised from VHS",
+  "duration_s": 2.0,
+  "media_type": "video/x-msvideo",
+  "thumbnail": "scan-1985.avi.jpg"
+}

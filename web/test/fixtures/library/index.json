@@ -1,0 +1,81 @@
+{
+  "generated_at": "2026-08-30T12:00:00Z",
+  "count": 5,
+  "items": [
+    {
+      "path": "media/2026/family-photo.heic",
+      "schema": 1,
+      "id": "612623b3-18f7-41b1-a3c5-ff9306f50a3b",
+      "file": "family-photo.heic",
+      "uploaded_at": "2026-06-18T20:12:00Z",
+      "size_bytes": 55,
+      "sha256": "274abdbafc2ea5ef2dcfa1ea591728268b3482e3ff14e045c126b29b9ed2cf92",
+      "title": "Back garden",
+      "recorded_at": "2026-06-18",
+      "media_type": "image/heic"
+    },
+    {
+      "path": "media/2026/piano-recital.mp4",
+      "schema": 1,
+      "id": "042ccadf-e85d-404e-8c17-80c887d45aeb",
+      "file": "piano-recital.mp4",
+      "uploaded_at": "2026-04-14T02:11:09Z",
+      "size_bytes": 18447,
+      "sha256": "d239434da8a7bcf18f0a74cf6200e10b6ebb81a47ab22325120029506347e62f",
+      "title": "Spring Recital",
+      "recorded_at": "2026-04-12",
+      "tags": [
+        "piano",
+        "school"
+      ],
+      "location": "Roosevelt Elementary",
+      "notes": "Second half of the program",
+      "duration_s": 4.0,
+      "media_type": "video/mp4",
+      "thumbnail": "piano-recital.mp4.jpg"
+    },
+    {
+      "path": "media/2026/scan-1985.avi",
+      "schema": 1,
+      "id": "f4d24144-04e4-4f2c-b32c-581ddb93eba0",
+      "file": "scan-1985.avi",
+      "uploaded_at": "2026-02-01T11:00:00Z",
+      "size_bytes": 61912,
+      "sha256": "8daf3ad61f731f57d10675d62c4c1a76b78507b1094d5bc498991712521809db",
+      "title": "Camcorder tape, birthday 1985",
+      "recorded_at": "1985-08-09",
+      "notes": "Digitised from VHS",
+      "duration_s": 2.0,
+      "media_type": "video/x-msvideo",
+      "thumbnail": "scan-1985.avi.jpg"
+    },
+    {
+      "path": "media/2026/untitled-clip.mp4",
+      "schema": 1,
+      "id": "b20060e2-a241-4c73-bb9c-0b7dd1163b7e",
+      "file": "untitled-clip.mp4",
+      "uploaded_at": "2026-05-23T18:04:00Z",
+      "size_bytes": 11401,
+      "sha256": "5bfeed89a456e4f3ec17e4001902e8606bb6449b4d45b29d8786797d9750403c",
+      "recorded_at": "2026-05-22",
+      "duration_s": 2.0,
+      "media_type": "video/mp4"
+    },
+    {
+      "path": "media/2026/vacation-day1.mp4",
+      "schema": 1,
+      "id": "7ddee398-0e3d-432e-8a6b-8877bb74fd95",
+      "file": "vacation-day1.mp4",
+      "uploaded_at": "2026-07-03T09:00:00Z",
+      "size_bytes": 15063,
+      "sha256": "6d3e85bc8494366c3c1c0d5274a45cee7afad02b12f392e95abb6a445edc5532",
+      "title": "Vacation, day one",
+      "recorded_at": "2026-07-02T14:31:00Z",
+      "tags": [
+        "vacation"
+      ],
+      "duration_s": 3.0,
+      "media_type": "video/mp4"
+    }
+  ]
+}

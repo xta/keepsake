@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "id": "042ccadf-e85d-404e-8c17-80c887d45aeb",
+  "file": "piano-recital.mp4",
+  "uploaded_at": "2026-04-14T02:11:09Z",
+  "size_bytes": 18447,
+  "sha256": "d239434da8a7bcf18f0a74cf6200e10b6ebb81a47ab22325120029506347e62f",
+  "title": "Spring Recital",
+  "recorded_at": "2026-04-12",
+  "tags": [
+    "piano",
+    "school"
+  ],
+  "location": "Roosevelt Elementary",
+  "notes": "Second half of the program",
+  "duration_s": 4.0,
+  "media_type": "video/mp4",
+  "thumbnail": "piano-recital.mp4.jpg"
+}
