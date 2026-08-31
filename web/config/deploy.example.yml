@@ -1,0 +1,33 @@
+# Copy to config/deploy.<destination>.yml (gitignored) and fill in.
+# Kamal merges it over config/deploy.yml:  kamal deploy -d production
+#
+# Everything here is specific to YOUR deployment and must never be committed.
+
+servers:
+  web:
+    - 203.0.113.10          # your server's IP or hostname
+
+proxy:
+  hosts:
+    - keepsake.example.com  # each host gets its own Let's Encrypt certificate
+    # A permanent fallback that needs no DNS records of your own: sslip.io is
+    # wildcard DNS that decodes the IP straight out of the hostname, and it
+    # resolves publicly, so Let's Encrypt will issue for it. Useful when your
+    # real domain's DNS is moving or broken.
+    # - keepsake.203.0.113.10.sslip.io
+
+registry:
+  username: your-registry-username
+
+ssh:
+  user: deploy
+  # Only needed if your key is not at a default path.
+  # keys:
+  #   - ~/.ssh/your_key
+  # Offer only that key, rather than marching through every agent identity and
+  # risking the server's MaxAuthTries before reaching the right one.
+  # keys_only: true
+
+accessories:
+  db:
+    host: 203.0.113.10      # normally the same server

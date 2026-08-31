@@ -22,13 +22,18 @@ Rails.application.configure do
   # config.asset_host = "http://assets.example.com"
 
   # Assume all access to the app is happening through a SSL-terminating reverse proxy.
-  # config.assume_ssl = true
+  # kamal-proxy terminates TLS and forwards over plain HTTP on the private
+  # Docker network, so Rails must be told the original request was secure --
+  # otherwise force_ssl below would redirect forever.
+  config.assume_ssl = true
 
   # Force all access to the app over SSL, use Strict-Transport-Security, and use secure cookies.
-  # config.force_ssl = true
+  config.force_ssl = true
 
   # Skip http-to-https redirect for the default health check endpoint.
-  # config.ssl_options = { redirect: { exclude: ->(request) { request.path == "/up" } } }
+  # The health check is requested over plain HTTP from inside the network; a
+  # redirect there would make the container look permanently unhealthy.
+  config.ssl_options = { redirect: { exclude: ->(request) { request.path == "/up" } } }
 
   # Log to STDOUT with the current request id as a default log tag.
   config.log_tags = [ :request_id ]

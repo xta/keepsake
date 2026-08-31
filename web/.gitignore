@@ -7,8 +7,9 @@
 # Ignore bundler config.
 /.bundle
 
-# Ignore all environment files.
+# Ignore all environment files. The example is the template for them.
 /.env*
+!/.env.example
 
 # Ignore all logfiles and tempfiles.
 /log/*
@@ -40,5 +41,6 @@ node_modules
 # in a destination file (`kamal deploy -d production` reads deploy.production.yml)
 # which stays local. See web/README.md.
 /config/deploy.*.yml
-/.kamal/secrets
+!/config/deploy.example.yml
+/.kamal/secrets*
 !/.kamal/secrets.example

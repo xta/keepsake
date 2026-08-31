@@ -27,6 +27,11 @@ ENV RAILS_ENV="production" \
     BUNDLE_WITHOUT="development" \
     LD_PRELOAD="/usr/local/lib/libjemalloc.so"
 
+# Node, only so Vite can build the front end. Copied from the official image
+# rather than compiled or apt-installed: it is faster, pinned, and none of it
+# reaches the final stage.
+FROM docker.io/library/node:24-slim AS node
+
 # Throw-away build stage to reduce size of final image
 FROM base AS build
 
@@ -34,6 +39,12 @@ FROM base AS build
 RUN apt-get update -qq && \
     apt-get install --no-install-recommends -y build-essential git libpq-dev libyaml-dev pkg-config && \
     rm -rf /var/lib/apt/lists /var/cache/apt/archives
+
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
+# vite_ruby shells out to npx, not just npm, so both need to be on PATH.
+RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
+    ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
 # Install application gems
 COPY vendor/* ./vendor/
@@ -44,6 +55,11 @@ RUN bundle install && \
     # -j 1 disable parallel compilation to avoid a QEMU bug: https://github.com/rails/bootsnap/issues/495
     bundle exec bootsnap precompile -j 1 --gemfile
 
+# Install JavaScript dependencies ahead of the app code, so a change to Ruby
+# or templates does not invalidate this layer.
+COPY package.json package-lock.json ./
+RUN npm ci
+
 # Copy application code
 COPY . .
 
@@ -51,8 +67,14 @@ COPY . .
 # -j 1 disable parallel compilation to avoid a QEMU bug: https://github.com/rails/bootsnap/issues/495
 RUN bundle exec bootsnap precompile -j 1 app/ lib/
 
-# Precompiling assets for production without requiring secret RAILS_MASTER_KEY
+# Precompiling assets for production without requiring secret RAILS_MASTER_KEY.
+# vite_ruby hooks vite:build onto assets:precompile, so this builds the Vue app
+# as well as the Propshaft assets.
 RUN SECRET_KEY_BASE_DUMMY=1 ./bin/rails assets:precompile
+
+# The built bundles are in public/vite; the toolchain that produced them is
+# dead weight in the runtime image (and more code than the app itself).
+RUN rm -rf node_modules
 
 
 
