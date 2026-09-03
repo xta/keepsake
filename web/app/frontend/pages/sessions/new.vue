@@ -1,5 +1,5 @@
 <script setup>
-import { Head, Link, useForm } from '@inertiajs/vue3'
+import { Head, useForm } from '@inertiajs/vue3'
 import AppLayout from '../../layouts/AppLayout.vue'
 defineOptions({ layout: AppLayout })
 
@@ -24,7 +24,7 @@ const form = useForm({ email_address: '', password: '' })
     </form>
 
     <p class="muted" style="margin-top: 1rem; font-size: .85rem; text-align: center;">
-      <Link href="/passwords/new">Forgot your password?</Link>
+      Lost your password? Ask whoever runs this install.
     </p>
   </div>
 </template>

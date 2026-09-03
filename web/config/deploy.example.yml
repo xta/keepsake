@@ -37,5 +37,5 @@ accessories:
 
 env:
   clear:
-    # Used for absolute URLs: password reset emails, invite links.
+    # Used for absolute URLs: the invite links printed by `kamal invite`.
     APP_HOST: keepsake.example.com

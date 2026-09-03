@@ -33,6 +33,28 @@ namespace :keepsake do
     puts
   end
 
+  desc "Set an account's password. EMAIL selects it; PASSWORD is generated if absent."
+  task password: :environment do
+    abort "EMAIL is required: bin/rails keepsake:password EMAIL=someone@example.com" if ENV["EMAIL"].blank?
+
+    user = User.find_by(email_address: ENV["EMAIL"].downcase)
+    abort "No account for #{ENV['EMAIL']}." unless user
+
+    password = ENV["PASSWORD"].presence || SecureRandom.alphanumeric(16)
+    user.update!(password: password)
+
+    # What the old reset-by-mail flow did, and for the same reason: if the
+    # password needed changing, whoever was holding a session should not keep
+    # it.
+    signed_out = user.sessions.destroy_all.size
+
+    puts
+    puts "  #{user.email_address}"
+    puts "  password: #{password}"
+    puts "  signed out #{signed_out} #{'session'.pluralize(signed_out)}"
+    puts
+  end
+
   desc "List invitations and whether they have been used."
   task invites: :environment do
     if Invite.none?

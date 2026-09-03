@@ -1,6 +1,10 @@
 Rails.application.routes.draw do
   resource :session, only: %i[ new create destroy ]
-  resources :passwords, param: :token, only: %i[ new create edit update ]
+
+  # No password reset by mail. This install has no other reason to send any,
+  # and one flow does not justify an SMTP dependency for a set of users the
+  # operator invited by hand and can reach the same way. Passwords are set from
+  # the console, like invitations are minted there: bin/rails keepsake:password
 
   # Signup exists only behind an invitation. See RegistrationsController.
   get  "invites/:token", to: "registrations#new",    as: :invite
