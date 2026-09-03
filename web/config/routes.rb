@@ -31,8 +31,15 @@ Rails.application.routes.draw do
 
   root "libraries#index"
 
-  # Redirect to localhost from 127.0.0.1 to use same IP address with Vite server
-  constraints(host: "127.0.0.1") do
-    get "(*path)", to: redirect { |params, req| "#{req.protocol}localhost:#{req.port}/#{params[:path]}" }
+  # Redirect to localhost from 127.0.0.1 to use same IP address with Vite server.
+  #
+  # Development and test only. The Vite dev server is the only reason the two
+  # hostnames have to agree, so a catch-all matching every path has no business
+  # being drawn in a real deployment. Stays last, where it cannot shadow a route
+  # above it.
+  if Rails.env.local?
+    constraints(host: "127.0.0.1") do
+      get "(*path)", to: redirect { |params, req| "#{req.protocol}localhost:#{req.port}/#{params[:path]}" }
+    end
   end
 end

@@ -55,6 +55,12 @@ Rails.application.configure do
   config.active_job.queue_adapter = :solid_queue
   config.solid_queue.connects_to = { database: { writing: :queue } }
 
+  # Unmount Action Cable. Its engine mounts /cable whether or not anything uses
+  # it, and nothing here does: this app declares no channels, and the sweep page
+  # reports progress by polling. What was left was an endpoint whose only
+  # possible answer was to reject the connection.
+  config.action_cable.mount_path = nil
+
   # Ignore bad email addresses and do not raise email delivery errors.
   # Set this to true and configure the email server for immediate delivery to raise delivery errors.
   # config.action_mailer.raise_delivery_errors = false
