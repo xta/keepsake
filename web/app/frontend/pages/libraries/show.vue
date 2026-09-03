@@ -51,12 +51,12 @@ function hasThumb(item) { return item.thumbnailUrl && !brokenThumbs.value.has(it
   <div v-if="catalogMissing" class="empty">
     <h2>This bucket has no catalog yet</h2>
     <p>
-      keepsake reads one <code>index.json</code> at the bucket root. This bucket
-      has not got one.
+      keepsake reads an index at the bucket root, and this bucket has not
+      got one yet.
     </p>
     <p>
-      Run <code>keepsake sync --apply</code> to build it. Your videos are fine,
-      just not catalogued.
+      Run <code>keepsake sync --apply</code> to build it. Your files are not
+      affected.
     </p>
   </div>
 

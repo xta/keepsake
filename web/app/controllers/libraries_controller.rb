@@ -58,7 +58,7 @@ class LibrariesController < ApplicationController
     @library.destroy!
     # Deleting a library removes stored credentials and a cached catalog. It
     # never touches the bucket -- the archive outlives this app by design.
-    redirect_to libraries_path, notice: "#{@library.label} removed. The bucket is untouched."
+    redirect_to libraries_path, notice: "#{@library.label} removed. Nothing in the bucket was deleted."
   end
 
   # The grid.

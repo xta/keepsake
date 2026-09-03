@@ -30,8 +30,8 @@ function apply() {
       </p>
       <h1>Scan for new files</h1>
       <p class="sub">
-        Finds media uploaded by anything else &mdash; a phone app, another
-        client &mdash; and writes the metadata keepsake needs.
+        Finds media uploaded by other tools and writes the metadata keepsake
+        needs.
       </p>
     </div>
   </div>
@@ -48,8 +48,8 @@ function apply() {
     <div v-if="adoptable.length" class="card card-pad" style="margin-bottom: 1.5rem">
       <h2>{{ adoptable.length }} new {{ adoptable.length === 1 ? 'file' : 'files' }}</h2>
       <p class="muted" style="font-size: .88rem; margin: .4rem 0 1rem">
-        Each gets a sidecar recording its name, size, type and when it landed.
-        Titles and dates are left blank &mdash; add them afterwards.
+        Each gets an entry with its name, size, type and upload date. Titles
+        and dates are left blank; add them later.
       </p>
 
       <ul class="found">

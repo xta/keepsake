@@ -98,7 +98,7 @@ onUnmounted(() => { if (poll) clearInterval(poll) })
           <template v-else>Not fetched yet.</template>
           <template v-if="library.generatedAt"> &middot; built {{ timeAgo(library.generatedAt) }}</template>
         </p>
-        <p class="hint">Re-reads <code>index.json</code> from the bucket. Nothing is written.</p>
+        <p class="hint">Re-reads the index from the bucket. Nothing is written.</p>
         <button type="button" class="btn" :disabled="refreshing || blocked" @click="refresh">
           {{ refreshing ? 'Refreshing…' : 'Refresh catalog' }}
         </button>
@@ -109,8 +109,8 @@ onUnmounted(() => { if (poll) clearInterval(poll) })
       <section v-if="library.writable" class="card card-pad">
         <h2>Scan for new files</h2>
         <p class="hint">
-          Adopts media uploaded by another route: writes the sidecars keepsake
-          needs, fills in dates and runtimes, and rebuilds <code>index.json</code>.
+          Finds media added by other tools, fills in dates, runtimes and
+          thumbnails, and rebuilds the index.
         </p>
 
         <div v-if="library.sweeping" class="flash flash-notice">
@@ -139,7 +139,7 @@ onUnmounted(() => { if (poll) clearInterval(poll) })
       <div class="field">
         <label for="label">Name</label>
         <input id="label" v-model="form.label" type="text" required placeholder="Family videos" />
-        <div class="hint">Anything you like.</div>
+        <div class="hint">Name of this library.</div>
         <div v-if="form.errors.label" class="err">{{ form.errors.label }}</div>
       </div>
 
@@ -180,7 +180,7 @@ onUnmounted(() => { if (poll) clearInterval(poll) })
       <div class="field">
         <label for="prefix">Key prefix <span class="muted">(optional)</span></label>
         <input id="prefix" v-model="form.prefix" type="text" placeholder="archive/" />
-        <div class="hint">If your files sit under a subpath.</div>
+        <div class="hint">Use if your files are under a subpath in the bucket.</div>
       </div>
 
       <hr style="border: 0; border-top: 1px solid var(--border); margin: 1.5rem 0" />
@@ -206,7 +206,7 @@ onUnmounted(() => { if (poll) clearInterval(poll) })
           <option value="read_only">Read only</option>
           <option value="read_write">Read and write</option>
         </select>
-        <div class="hint">Viewing only needs read.</div>
+        <div class="hint">Read-only is enough to view and download.</div>
       </div>
 
       <div v-if="form.provider === 'other'" class="field">
@@ -227,7 +227,7 @@ onUnmounted(() => { if (poll) clearInterval(poll) })
         </button>
       </div>
       <p v-if="editing" class="hint" style="margin-top: .75rem">
-        Removing forgets the bucket here. It leaves the bucket alone.
+        Removes this library from keepsake. Nothing in the bucket is deleted.
       </p>
     </form>
   </div>
