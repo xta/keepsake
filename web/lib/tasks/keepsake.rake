@@ -1,4 +1,30 @@
 namespace :keepsake do
+  desc "Name the organization. NAME is required."
+  task "org:rename" => :environment do
+    abort "NAME is required: bin/rails keepsake:org:rename NAME=\"The Smiths\"" if ENV["NAME"].blank?
+
+    org = Organization.order(:id).first
+    abort "No organization yet. Mint an invitation first: bin/rails keepsake:invite" unless org
+
+    was = org.name
+    org.update!(name: ENV["NAME"])
+    puts "  #{was} -> #{org.name}"
+  end
+
+  desc "List organizations, their members and how many libraries they hold."
+  task orgs: :environment do
+    if Organization.none?
+      puts "No organizations yet. Run: bin/rails keepsake:invite"
+      next
+    end
+
+    Organization.order(:id).each do |org|
+      puts "  #{org.name} (#{org.libraries.count} #{'library'.pluralize(org.libraries.count)})"
+      org.users.order(:id).each { |u| puts "    #{u.email_address}" }
+      puts "    no members yet" if org.users.none?
+    end
+  end
+
   desc "Mint an invitation link. EMAIL is optional and advisory. HOST sets the link's origin."
   task invite: :environment do
     # APP_HOST is set per deployment; HOST overrides it for one-off use. A
@@ -23,13 +49,24 @@ namespace :keepsake do
         User.order(:id).first
       end
 
-    invite = Invite.create!(created_by: creator, email_address: ENV["EMAIL"].presence)
+    # An invitation joins somebody to an organization, so on a fresh install
+    # there has to be one to join. Named after the first account by default;
+    # rename it with keepsake:org:rename.
+    organization = creator&.organization || Organization.order(:id).first
+    organization ||= Organization.create!(name: ENV.fetch("ORG", "keepsake"))
+
+    invite = Invite.create!(organization: organization, created_by: creator,
+                            email_address: ENV["EMAIL"].presence)
 
     puts
     puts "  #{host}/invites/#{invite.token}"
     puts
-    puts "  expires #{invite.expires_at.to_fs(:long)}"
+    puts "  joins #{organization.name}"
+    puts "  expires #{invite.expires_at.to_fs(:long)} (#{ActiveSupport::Duration.build(Invite::DEFAULT_TTL).inspect})"
     puts "  #{creator ? "from #{creator.email_address}" : 'first invite on this install (no creator)'}"
+    puts
+    puts "  Anyone who claims this can view and edit every library in"
+    puts "  #{organization.name}, bucket credentials included."
     puts
   end
 
@@ -107,7 +144,8 @@ namespace :keepsake do
     if user
       puts "#{email} already exists; leaving its password alone."
     else
-      user = User.create!(email_address: email, password: password)
+      org = Organization.order(:id).first || Organization.create!(name: "demo")
+      user = User.create!(email_address: email, password: password, organization: org)
       puts "Created #{email}"
       puts "  password: #{password}"
     end

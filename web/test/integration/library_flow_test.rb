@@ -14,7 +14,7 @@ class LibraryFlowTest < ActionDispatch::IntegrationTest
   end
 
   test "an expired invitation cannot be claimed" do
-    invite = Invite.create!(expires_at: 1.day.ago)
+    invite = Invite.create!(organization: organizations(:one), expires_at: 1.day.ago)
 
     post "/invites/#{invite.token}", params: {
       email_address: "late@example.com", password: "password123",
@@ -26,7 +26,7 @@ class LibraryFlowTest < ActionDispatch::IntegrationTest
   end
 
   test "an invitation can only be claimed once" do
-    invite = Invite.create!
+    invite = Invite.create!(organization: organizations(:one))
     claim(invite, "first@example.com")
     assert invite.reload.claimed?
 
@@ -38,7 +38,7 @@ class LibraryFlowTest < ActionDispatch::IntegrationTest
   end
 
   test "full journey: claim an invite, add a library, browse it, open an item" do
-    invite = Invite.create!
+    invite = Invite.create!(organization: organizations(:one))
     claim(invite, "family@example.com")
     user = User.find_by!(email_address: "family@example.com")
     assert_equal user, invite.reload.claimed_by
@@ -151,6 +151,38 @@ class LibraryFlowTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "everyone in an organization sees the same libraries" do
+    owner = signed_in_user("owner@example.com")
+    library = create_library(owner)
+    delete "/session"
+
+    # Invited into the SAME organization, and adds no credentials of their own.
+    joiner = signed_in_user("joiner@example.com", organization: owner.organization)
+    assert_empty joiner.added_libraries, "the point is that they added nothing"
+
+    get libraries_path
+    assert_equal [ library.id ], inertia_props["libraries"].map { |l| l["id"] }
+
+    get library_path(library)
+    assert_response :success
+  end
+
+  test "claiming an invitation joins you to its organization" do
+    org = Organization.create!(name: "The Smiths")
+    invite = Invite.create!(organization: org)
+
+    claim(invite, "cousin@example.com")
+
+    joined = User.find_by!(email_address: "cousin@example.com")
+    assert_equal org, joined.organization
+    assert_equal org, invite.reload.organization
+  end
+
+  test "an invitation is short-lived, because claiming one hands over bucket keys" do
+    invite = Invite.create!(organization: organizations(:one))
+    assert_in_delta 24.hours.from_now, invite.expires_at, 1.minute
+  end
+
   test "one user cannot reach another user's library" do
     owner = signed_in_user("owner@example.com")
     library = create_library(owner)
@@ -166,7 +198,7 @@ class LibraryFlowTest < ActionDispatch::IntegrationTest
   test "a bucket with no index.json explains itself instead of failing" do
     user = signed_in_user
     empty = Dir.mktmpdir
-    library = user.libraries.create!(
+    library = user.organization.libraries.create!(
       label: "Empty", provider: "local", bucket: empty,
       access_key_id: "x", secret_access_key: "y"
     )
@@ -182,7 +214,7 @@ class LibraryFlowTest < ActionDispatch::IntegrationTest
   test "an endpoint pointing at a private address is refused" do
     user = signed_in_user
 
-    library = user.libraries.build(
+    library = user.organization.libraries.build(
       label: "Evil", provider: "other", endpoint: "https://169.254.169.254",
       region: "us-east-1", bucket: "b", access_key_id: "x", secret_access_key: "y"
     )
@@ -267,7 +299,7 @@ class LibraryFlowTest < ActionDispatch::IntegrationTest
     user = signed_in_user
     dir = Dir.mktmpdir
     FileUtils.cp_r(Rails.root.join("test/fixtures/library").to_s + "/.", dir)
-    library = user.libraries.create!(
+    library = user.organization.libraries.create!(
       label: "Writable", provider: "local", bucket: dir,
       access_key_id: "k", secret_access_key: "s", access_level: "read_write"
     )
@@ -304,14 +336,19 @@ class LibraryFlowTest < ActionDispatch::IntegrationTest
       }
     end
 
-    def signed_in_user(email = "user@example.com")
-      user = User.create!(email_address: email, password: "password123")
+    # Each gets its own organization unless told otherwise, so the isolation
+    # tests still describe two strangers rather than two colleagues.
+    def signed_in_user(email = "user@example.com", organization: nil)
+      organization ||= Organization.create!(name: email.split("@").first)
+      user = User.create!(email_address: email, password: "password123",
+                          organization: organization)
       post "/session", params: { email_address: email, password: "password123" }
       user
     end
 
     def create_library(user)
-      user.libraries.create!(
+      user.organization.libraries.create!(
+        created_by: user,
         label: "Fixtures", provider: "local", bucket: FIXTURE_LIBRARY,
         access_key_id: "not-used", secret_access_key: "super-secret-value"
       )

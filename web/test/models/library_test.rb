@@ -1,10 +1,13 @@
 require "test_helper"
 
 class LibraryTest < ActiveSupport::TestCase
-  setup { @user = User.create!(email_address: "lib@example.com", password: "password123") }
+  setup do
+    org = Organization.create!(name: "Library test")
+    @user = User.create!(email_address: "lib@example.com", password: "password123", organization: org)
+  end
 
   test "pasted values are cleaned up rather than failing obscurely later" do
-    library = @user.libraries.new(
+    library = @user.organization.libraries.new(
       label: "  Family  ", provider: "b2",
       # The whole endpoint, pasted into the region field.
       region: "https://s3.us-west-001.backblazeb2.com",
@@ -24,7 +27,7 @@ class LibraryTest < ActiveSupport::TestCase
   end
 
   test "a bare host endpoint gets https rather than a rejection" do
-    library = @user.libraries.new(
+    library = @user.organization.libraries.new(
       label: "O", provider: "other", endpoint: "s3.us-west-001.backblazeb2.com/",
       region: "us-west-001", bucket: "b", access_key_id: "k", secret_access_key: "s"
     )
@@ -33,7 +36,7 @@ class LibraryTest < ActiveSupport::TestCase
   end
 
   test "a region that is not a region fails on the form, not inside the AWS SDK" do
-    library = @user.libraries.new(
+    library = @user.organization.libraries.new(
       label: "B", provider: "other", endpoint: "https://s3.us-west-001.backblazeb2.com",
       region: "not a region!", bucket: "b", access_key_id: "k", secret_access_key: "s"
     )
@@ -43,14 +46,14 @@ class LibraryTest < ActiveSupport::TestCase
 
   test "prefixes are stored in one shape" do
     %w[ media media/ /media ].each do |input|
-      library = @user.libraries.new(prefix: input)
+      library = @user.organization.libraries.new(prefix: input)
       library.valid?
       assert_equal "media/", library.prefix, "#{input.inspect} should normalise"
     end
   end
 
   test "the secret is never exposed, only hinted" do
-    library = @user.libraries.create!(
+    library = @user.organization.libraries.create!(
       label: "S", provider: "local", bucket: Rails.root.join("test/fixtures/library").to_s,
       access_key_id: "k", secret_access_key: "abcdef123456"
     )

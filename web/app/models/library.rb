@@ -4,7 +4,9 @@
 # here: every field on this record eventually becomes an outbound request from
 # our server to a host the user chose.
 class Library < ApplicationRecord
-  belongs_to :user
+  belongs_to :organization
+  # Nullable: the person who added it may since have left.
+  belongs_to :created_by, class_name: "User", optional: true
   has_one :catalog, dependent: :destroy
 
   # The secret is encrypted at rest, non-deterministic: we never query by it,
@@ -23,7 +25,7 @@ class Library < ApplicationRecord
   before_validation :derive_endpoint
   before_validation :normalize_prefix
 
-  validates :label, presence: true, uniqueness: { scope: :user_id,
+  validates :label, presence: true, uniqueness: { scope: :organization_id,
             message: "is already used by another of your libraries" }
   validates :bucket, presence: true
   validates :region, presence: true
@@ -40,7 +42,10 @@ class Library < ApplicationRecord
 
   scope :ordered, -> { order(:label) }
 
-  def viewable_by?(other) = user_id == other&.id
+  # Membership is the whole of it for now. Kept as two methods because the
+  # day roles arrive, this is where they go, and every caller already asks the
+  # right question.
+  def viewable_by?(other) = organization_id.present? && organization_id == other&.organization_id
   def editable_by?(other) = viewable_by?(other)
 
   # Never render the secret. This is what the edit form shows instead.

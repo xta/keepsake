@@ -1,6 +1,6 @@
 class ItemsController < ApplicationController
   def show
-    library = Current.user.libraries.find_by(id: params[:library_id])
+    library = Current.organization.libraries.find_by(id: params[:library_id])
     raise ActionController::RoutingError, "Not Found" unless library&.viewable_by?(Current.user)
 
     catalog = library.catalog
@@ -22,7 +22,7 @@ class ItemsController < ApplicationController
   # Editing metadata writes to the bucket, because the bucket is the source of
   # truth. The local row is a cache, updated afterwards.
   def update
-    library = Current.user.libraries.find_by(id: params[:library_id])
+    library = Current.organization.libraries.find_by(id: params[:library_id])
     raise ActionController::RoutingError, "Not Found" unless library&.viewable_by?(Current.user)
     # Hidden, not merely refused, on a read-only library.
     raise ActionController::RoutingError, "Not Found" unless library.access_read_write?
@@ -66,7 +66,7 @@ class ItemsController < ApplicationController
   # The sweep does this across a library; this is for the one video you are
   # looking at. Only fills what is absent -- nothing you typed is overwritten.
   def enrich
-    library = Current.user.libraries.find_by(id: params[:library_id])
+    library = Current.organization.libraries.find_by(id: params[:library_id])
     raise ActionController::RoutingError, "Not Found" unless library&.viewable_by?(Current.user)
     raise ActionController::RoutingError, "Not Found" unless library.access_read_write?
 

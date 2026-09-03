@@ -1,9 +1,14 @@
 class Invite < ApplicationRecord
-  DEFAULT_TTL = 14.days
+  # Short on purpose. A link that joins somebody to an organization and hands
+  # them its bucket credentials should not sit in an inbox for a fortnight.
+  DEFAULT_TTL = 24.hours
 
   # Nullable: the very first invite on a fresh install has no creator, because
   # there is nobody yet. Inventing a placeholder user to satisfy a foreign key
   # would be a lie in the audit trail.
+  # What you are being invited to. An invitation is a way into an
+  # organization, not merely a way to hold an account.
+  belongs_to :organization
   belongs_to :created_by, class_name: "User", optional: true
   belongs_to :claimed_by, class_name: "User", optional: true
 

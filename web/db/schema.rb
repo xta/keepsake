@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_03_051848) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_03_065100) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -52,10 +52,12 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_03_051848) do
     t.bigint "created_by_id"
     t.string "email_address"
     t.datetime "expires_at", null: false
+    t.bigint "organization_id"
     t.string "token", null: false
     t.datetime "updated_at", null: false
     t.index ["claimed_by_id"], name: "index_invites_on_claimed_by_id"
     t.index ["created_by_id"], name: "index_invites_on_created_by_id"
+    t.index ["organization_id"], name: "index_invites_on_organization_id"
     t.index ["token"], name: "index_invites_on_token", unique: true
   end
 
@@ -64,11 +66,13 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_03_051848) do
     t.string "access_level", default: "read_only", null: false
     t.string "bucket", null: false
     t.datetime "created_at", null: false
+    t.bigint "created_by_id"
     t.string "endpoint", null: false
     t.boolean "force_path_style", default: false, null: false
     t.string "label", null: false
     t.text "last_error"
     t.datetime "last_verified_at"
+    t.bigint "organization_id", null: false
     t.string "prefix"
     t.string "provider", null: false
     t.string "region", null: false
@@ -78,9 +82,15 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_03_051848) do
     t.datetime "sweep_started_at"
     t.string "sweep_state"
     t.datetime "updated_at", null: false
-    t.bigint "user_id", null: false
-    t.index ["user_id", "label"], name: "index_libraries_on_user_id_and_label", unique: true
-    t.index ["user_id"], name: "index_libraries_on_user_id"
+    t.index ["created_by_id"], name: "index_libraries_on_created_by_id"
+    t.index ["organization_id", "label"], name: "index_libraries_on_organization_id_and_label", unique: true
+    t.index ["organization_id"], name: "index_libraries_on_organization_id"
+  end
+
+  create_table "organizations", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.string "name", null: false
+    t.datetime "updated_at", null: false
   end
 
   create_table "sessions", force: :cascade do |t|
@@ -99,17 +109,22 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_03_051848) do
     t.string "email_address", null: false
     t.datetime "invited_at"
     t.bigint "invited_by_id"
+    t.bigint "organization_id", null: false
     t.string "password_digest", null: false
     t.datetime "updated_at", null: false
     t.index ["email_address"], name: "index_users_on_email_address", unique: true
     t.index ["invited_by_id"], name: "index_users_on_invited_by_id"
+    t.index ["organization_id"], name: "index_users_on_organization_id"
   end
 
   add_foreign_key "catalog_items", "catalogs"
   add_foreign_key "catalogs", "libraries"
+  add_foreign_key "invites", "organizations"
   add_foreign_key "invites", "users", column: "claimed_by_id"
   add_foreign_key "invites", "users", column: "created_by_id"
-  add_foreign_key "libraries", "users"
+  add_foreign_key "libraries", "organizations"
+  add_foreign_key "libraries", "users", column: "created_by_id"
   add_foreign_key "sessions", "users"
+  add_foreign_key "users", "organizations"
   add_foreign_key "users", "users", column: "invited_by_id"
 end

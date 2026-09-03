@@ -2,8 +2,9 @@ require "test_helper"
 
 class Keepsake::MovieHeaderTest < ActiveSupport::TestCase
   setup do
-    @user = User.create!(email_address: "mvhd@example.com", password: "password123")
-    @library = @user.libraries.create!(
+    @user = User.create!(email_address: "mvhd@example.com", password: "password123",
+                         organization: Organization.create!(name: "mvhd"))
+    @library = @user.organization.libraries.create!(
       label: "Headers", provider: "local",
       bucket: Rails.root.join("test/fixtures/library").to_s,
       access_key_id: "k", secret_access_key: "s"

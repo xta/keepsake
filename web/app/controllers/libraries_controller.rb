@@ -9,7 +9,7 @@ class LibrariesController < ApplicationController
   PER_PAGE = 48
 
   def index
-    libraries = Current.user.libraries.ordered.includes(:catalog)
+    libraries = Current.organization.libraries.ordered.includes(:catalog)
 
     render inertia: "libraries/index", props: {
       libraries: libraries.map { |l| LibrarySerializer.summary(l, l.catalog) }
@@ -26,7 +26,7 @@ class LibrariesController < ApplicationController
   end
 
   def create
-    library = Current.user.libraries.new(library_params)
+    library = Current.organization.libraries.new(library_params.merge(created_by: Current.user))
 
     if library.save
       redirect_to library_path(library), notice: "Library added."
@@ -121,7 +121,7 @@ class LibrariesController < ApplicationController
 
   private
     def load_library
-      @library = Current.user.libraries.find_by(id: params[:id])
+      @library = Current.organization.libraries.find_by(id: params[:id])
       # 404 rather than 403: whether a library exists is not this user's
       # business either way.
       raise ActionController::RoutingError, "Not Found" unless @library&.viewable_by?(Current.user)

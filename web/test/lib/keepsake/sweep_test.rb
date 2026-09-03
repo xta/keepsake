@@ -6,7 +6,8 @@ require "tmpdir"
 # library, so the committed fixtures are never mutated.
 class Keepsake::SweepTest < ActiveSupport::TestCase
   setup do
-    @user = User.create!(email_address: "sweep@example.com", password: "password123")
+    @user = User.create!(email_address: "sweep@example.com", password: "password123",
+                         organization: Organization.create!(name: "sweep"))
     @dir = Dir.mktmpdir
     FileUtils.cp_r(Rails.root.join("test/fixtures/library").to_s + "/.", @dir)
     @library = build_library(access_level: "read_write")
@@ -183,7 +184,7 @@ class Keepsake::SweepTest < ActiveSupport::TestCase
     end
 
     def build_library(access_level:, label: "Sweepable")
-      @user.libraries.create!(
+      @user.organization.libraries.create!(
         label: label, provider: "local", bucket: @dir,
         access_key_id: "k", secret_access_key: "s", access_level: access_level
       )

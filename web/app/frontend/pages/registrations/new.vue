@@ -4,6 +4,7 @@ import AppLayout from '../../layouts/AppLayout.vue'
 defineOptions({ layout: AppLayout })
 
 const props = defineProps({
+  organizationName: String,
   token: String,
   invitedEmail: String,
   unusableReason: String,

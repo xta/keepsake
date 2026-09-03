@@ -8,7 +8,7 @@ module Dev
     before_action :ensure_local_environment
 
     def show
-      library = Current.user.libraries.find_by(id: params[:library_id])
+      library = Current.organization.libraries.find_by(id: params[:library_id])
       raise ActionController::RoutingError, "Not Found" unless library&.provider == "local"
 
       path = library.client.path_for(params[:key])

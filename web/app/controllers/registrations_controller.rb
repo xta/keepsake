@@ -18,6 +18,7 @@ class RegistrationsController < ApplicationController
       # stale bearer token, and it has no business still answering questions
       # about who it was minted for.
       invitedEmail: (@invite.email_address if @invite.usable?),
+      organizationName: @invite.organization.name,
       unusableReason: @invite.unusable_reason
     }
   end
@@ -25,12 +26,16 @@ class RegistrationsController < ApplicationController
   def create
     return redirect_to(invite_path(@invite.token), alert: @invite.unusable_reason) unless @invite.usable?
 
-    user = User.new(user_params.merge(invited_by: @invite.created_by, invited_at: Time.current))
+    user = User.new(user_params.merge(
+      organization: @invite.organization,
+      invited_by: @invite.created_by,
+      invited_at: Time.current
+    ))
 
     if user.save
       @invite.claim!(user)
       start_new_session_for user
-      redirect_to libraries_path, notice: "Add a bucket to get started."
+      redirect_to libraries_path, notice: "You have joined #{@invite.organization.name}."
     else
       redirect_to invite_path(@invite.token), inertia: { errors: user.errors }
     end

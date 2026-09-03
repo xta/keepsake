@@ -14,6 +14,10 @@ class ApplicationController < ActionController::Base
   private
     def current_user_props
       return nil unless Current.user
-      { id: Current.user.id, emailAddress: Current.user.email_address }
+      {
+        id: Current.user.id,
+        emailAddress: Current.user.email_address,
+        organizationName: Current.organization&.name
+      }
     end
 end

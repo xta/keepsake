@@ -36,7 +36,7 @@ module Libraries
 
     private
       def load_library
-        @library = Current.user.libraries.find_by(id: params[:library_id])
+        @library = Current.organization.libraries.find_by(id: params[:library_id])
         raise ActionController::RoutingError, "Not Found" unless @library&.viewable_by?(Current.user)
       end
 
