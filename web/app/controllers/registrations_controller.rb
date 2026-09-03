@@ -14,7 +14,10 @@ class RegistrationsController < ApplicationController
   def new
     render inertia: "registrations/new", props: {
       token: params[:token],
-      invitedEmail: @invite.email_address,
+      # Only while the invitation is live. A claimed or expired link is a
+      # stale bearer token, and it has no business still answering questions
+      # about who it was minted for.
+      invitedEmail: (@invite.email_address if @invite.usable?),
       unusableReason: @invite.unusable_reason
     }
   end
