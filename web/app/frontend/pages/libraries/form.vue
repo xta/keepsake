@@ -1,12 +1,15 @@
 <script setup>
 import { Head, Link, useForm, router } from '@inertiajs/vue3'
-import { computed } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { bytes, timeAgo } from '../../lib/format'
 import AppLayout from '../../layouts/AppLayout.vue'
 defineOptions({ layout: AppLayout })
 
 const props = defineProps({
   library: Object,
   providers: Object,
+  backTo: Object,
+  from: String,
 })
 
 const editing = computed(() => !!props.library)
@@ -42,14 +45,40 @@ function verify() {
 function destroy() {
   router.delete(`/libraries/${props.library.id}`)
 }
+
+// Refresh and Scan navigate, which throws away anything typed into the form
+// below. Rather than silently losing it, they wait until there is nothing to
+// lose. `isDirty` is Inertia's own comparison against the values we started
+// with, so saving clears it.
+const blocked = computed(() => editing.value && form.isDirty)
+
+const refreshing = ref(false)
+function refresh() {
+  refreshing.value = true
+  router.post(`/libraries/${props.library.id}/refresh`, { from: props.from }, {
+    onFinish: () => { refreshing.value = false },
+  })
+}
+
+// A sweep runs in the background, so the page asks how it is going.
+let poll = null
+onMounted(() => {
+  if (!props.library?.sweeping) return
+  poll = setInterval(() => router.reload({ only: ["library"] }), 3000)
+})
+onUnmounted(() => { if (poll) clearInterval(poll) })
 </script>
 
 <template>
   <Head :title="editing ? `${library.label} settings` : 'Add a library'" />
   <div style="max-width: 34rem; margin: 0 auto;">
+    <p class="back">
+      <Link :href="backTo.href">&larr; {{ backTo.label }}</Link>
+    </p>
+
     <div class="page-head">
       <div class="grow">
-        <h1>{{ editing ? 'Edit library' : 'Add a library' }}</h1>
+        <h1>{{ editing ? 'Settings' : 'Add a library' }}</h1>
         
       </div>
     </div>
@@ -57,6 +86,54 @@ function destroy() {
     <div v-if="library?.lastError" class="flash flash-alert">
       Last connection attempt failed: {{ library.lastError }}
     </div>
+
+    <template v-if="editing">
+      <section class="card card-pad">
+        <h2>Catalog</h2>
+        <p class="sub">
+          <template v-if="library.itemCount != null">
+            {{ library.itemCount }} {{ library.itemCount === 1 ? 'item' : 'items' }}<template
+              v-if="library.totalBytes"> &middot; {{ bytes(library.totalBytes) }}</template>
+          </template>
+          <template v-else>Not fetched yet.</template>
+          <template v-if="library.generatedAt"> &middot; built {{ timeAgo(library.generatedAt) }}</template>
+        </p>
+        <p class="hint">Re-reads <code>index.json</code> from the bucket. Nothing is written.</p>
+        <button type="button" class="btn" :disabled="refreshing || blocked" @click="refresh">
+          {{ refreshing ? 'Refreshing…' : 'Refresh catalog' }}
+        </button>
+      </section>
+
+      <!-- Writing is only offered when the stored key can write. A read-only
+           library is not shown a button it would be refused. -->
+      <section v-if="library.writable" class="card card-pad">
+        <h2>Scan for new files</h2>
+        <p class="hint">
+          Adopts media uploaded by another route: writes the sidecars keepsake
+          needs, fills in dates and runtimes, and rebuilds <code>index.json</code>.
+        </p>
+
+        <div v-if="library.sweeping" class="flash flash-notice">
+          Scanning&hellip; {{ library.sweepMessage }}
+        </div>
+        <div v-else-if="library.sweepState === 'failed'" class="flash flash-alert">
+          Last scan failed: {{ library.sweepMessage }}
+        </div>
+        <p v-else-if="library.sweepState === 'done' && library.sweepMessage" class="sub">
+          Last scan: {{ library.sweepMessage
+          }}<template v-if="library.sweepFinishedAt"> &middot; {{ timeAgo(library.sweepFinishedAt) }}</template>
+        </p>
+
+        <Link v-if="!library.sweeping && !blocked" class="btn" :href="`/libraries/${library.id}/sweep${from ? `?from=${from}` : ''}`">
+          Scan for new files
+        </Link>
+        <button v-else-if="!library.sweeping" type="button" class="btn" disabled>Scan for new files</button>
+      </section>
+
+      <p v-if="blocked" class="hint" style="margin: -.4rem 0 1rem">
+        Save or discard your changes below to refresh or scan.
+      </p>
+    </template>
 
     <form class="card card-pad" @submit.prevent="submit">
       <div class="field">
@@ -144,7 +221,7 @@ function destroy() {
           {{ editing ? 'Save changes' : 'Add library' }}
         </button>
         <button v-if="editing" type="button" class="btn" :disabled="form.processing" @click="verify">Test connection</button>
-        <Link class="btn" :href="editing ? `/libraries/${library.id}` : '/libraries'">Cancel</Link>
+        <Link class="btn" :href="backTo.href">Cancel</Link>
         <button v-if="editing" type="button" class="btn btn-danger" style="margin-left: auto" @click="destroy">
           Remove
         </button>
@@ -155,3 +232,12 @@ function destroy() {
     </form>
   </div>
 </template>
+
+<style scoped>
+.back { font-size: .85rem; margin: 0 0 1rem; }
+.back a { color: var(--muted); text-decoration: none; }
+.back a:hover { color: var(--text); text-decoration: underline; }
+section { margin-bottom: 1rem; }
+section h2 { font-size: 1rem; margin: 0 0 .35rem; }
+.sub { font-size: .85rem; color: var(--muted); margin: .2rem 0; }
+</style>

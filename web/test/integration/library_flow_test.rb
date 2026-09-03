@@ -110,6 +110,47 @@ class LibraryFlowTest < ActionDispatch::IntegrationTest
     assert_flash :alert, /No directory/
   end
 
+  test "Cancel returns you to wherever you came from" do
+    user = signed_in_user
+    library = create_library(user)
+
+    # The complaint that started this: settings from the homepage, then Cancel,
+    # used to drop you on the library grid rather than back on the homepage.
+    get edit_library_path(library, from: "index")
+    assert_equal libraries_path, inertia_props.dig("backTo", "href")
+  end
+
+  test "the settings page returns you to wherever you came from" do
+    user = signed_in_user
+    library = create_library(user)
+
+    {
+      "index" => [ libraries_path, "All libraries" ],
+      nil     => [ library_path(library), "Fixtures" ]
+    }.each do |from, (href, label)|
+      get edit_library_path(library, from: from)
+      assert_response :success
+      assert_equal({ "href" => href, "label" => label }, inertia_props["backTo"],
+        "from=#{from.inspect} should send you back to #{href}")
+    end
+  end
+
+  test "the settings back link can never be pointed off-site" do
+    user = signed_in_user
+    library = create_library(user)
+
+    [ "https://evil.example.com", "//evil.example.com", "javascript:alert(1)", "../../etc" ].each do |hostile|
+      get edit_library_path(library, from: hostile)
+
+      assert_response :success
+      # `from` names one of three destinations; it never supplies one. Assert on
+      # the prop rather than the page: Inertia echoes the request's own URL into
+      # its page object, which is inert data and not a link.
+      assert_equal library_path(library), inertia_props.dig("backTo", "href"),
+        "#{hostile.inspect} should fall back, never be used"
+    end
+  end
+
   test "one user cannot reach another user's library" do
     owner = signed_in_user("owner@example.com")
     library = create_library(owner)

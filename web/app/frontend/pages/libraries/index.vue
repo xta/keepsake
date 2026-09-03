@@ -31,7 +31,7 @@ defineProps({ libraries: Array })
     <div v-for="lib in libraries" :key="lib.id" class="card card-pad lib-card">
       <div class="row" style="justify-content: space-between; align-items: flex-start">
         <h2><Link :href="`/libraries/${lib.id}`">{{ lib.label }}</Link></h2>
-        <span class="pill">{{ lib.providerLabel || lib.provider }}</span>
+        <span class="pill">{{ lib.providerShortLabel || lib.provider }}</span>
       </div>
 
       <div class="mono muted" style="margin-top: .35rem; overflow-wrap: anywhere">
@@ -53,8 +53,9 @@ defineProps({ libraries: Array })
           catalog built {{ timeAgo(lib.generatedAt) }}
         </span>
         <!-- Always reachable from here. A misconfigured library cannot open
-             its own grid, and that is exactly when settings are needed. -->
-        <Link class="icon-btn" :href="`/libraries/${lib.id}/edit`" title="Settings" aria-label="Settings">
+             its own grid, and that is exactly when settings are needed.
+             `from` tells that page to send you back here, not onward. -->
+        <Link class="icon-btn" :href="`/libraries/${lib.id}/edit?from=index`" title="Settings" aria-label="Settings">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
                stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="3" />

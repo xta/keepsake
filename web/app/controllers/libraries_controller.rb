@@ -1,6 +1,11 @@
 class LibrariesController < ApplicationController
   before_action :load_library, only: %i[ show edit update destroy verify refresh ]
 
+  # Where the settings page's "back" goes. An allowlist of names rather than a
+  # returnable URL: the caller picks which of these, never where. A `return_to`
+  # parameter would be an open redirect wearing a helpful face.
+  BACK_DESTINATIONS = %w[ index library ].freeze
+
   PER_PAGE = 48
 
   def index
@@ -14,7 +19,9 @@ class LibrariesController < ApplicationController
   def new
     render inertia: "libraries/form", props: {
       library: nil,
-      providers: provider_options
+      providers: provider_options,
+      backTo: { href: libraries_path, label: "All libraries" },
+      from: nil
     }
   end
 
@@ -30,8 +37,12 @@ class LibrariesController < ApplicationController
 
   def edit
     render inertia: "libraries/form", props: {
-      library: LibrarySerializer.call(@library),
-      providers: provider_options
+      library: LibrarySerializer.summary(@library, @library.catalog),
+      providers: provider_options,
+      backTo: back_to,
+      # Echoed so Refresh and Scan can carry it: without this, using either one
+      # forgets you arrived from the homepage and Cancel drops you on the grid.
+      from: params[:from].presence_in(BACK_DESTINATIONS)
     }
   end
 
@@ -101,11 +112,11 @@ class LibrariesController < ApplicationController
 
   def refresh
     Keepsake::CatalogSync.new(@library).call(force: true)
-    redirect_to library_path(@library), notice: "Catalog refreshed."
+    redirect_to edit_library_path(@library, from: params[:from]), notice: "Catalog refreshed."
   rescue Keepsake::CatalogMissing => e
-    redirect_to library_path(@library), alert: e.message
+    redirect_to edit_library_path(@library, from: params[:from]), alert: e.message
   rescue Keepsake::StorageError => e
-    redirect_to library_path(@library), alert: e.message
+    redirect_to edit_library_path(@library, from: params[:from]), alert: e.message
   end
 
   private
@@ -129,6 +140,15 @@ class LibrariesController < ApplicationController
 
     def provider_options
       Keepsake::Provider.form_metadata.slice(*Keepsake::Provider.selectable)
+    end
+
+    # Resolves the allowlisted name to a path here, so no caller-supplied string
+    # ever reaches redirect_to or a href.
+    def back_to
+      case params[:from].presence_in(BACK_DESTINATIONS)
+      when "index" then { href: libraries_path, label: "All libraries" }
+      else { href: library_path(@library), label: @library.label }
+      end
     end
 
     def page = [ params[:page].to_i, 1 ].max

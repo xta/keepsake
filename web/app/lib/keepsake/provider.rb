@@ -78,10 +78,14 @@ module Keepsake
     end
 
     # Drives the form: which fields to show, and how to explain them.
+    # `label` names the service in full, which is what a form field needs.
+    # `short_label` is for the badge on a card, where "Backblaze B2" is three
+    # times the width of the thing it identifies.
     def form_metadata
       {
         "aws" => {
           label: "Amazon S3",
+          short_label: "S3",
           fields: %w[region bucket],
           region_label: "Region",
           region_hint: "e.g. us-east-1",
@@ -89,6 +93,7 @@ module Keepsake
         },
         "b2" => {
           label: "Backblaze B2",
+          short_label: "B2",
           fields: %w[region bucket],
           region_label: "S3 endpoint or region",
           region_hint: "Endpoint or region. Either works.",
@@ -96,12 +101,14 @@ module Keepsake
         },
         "r2" => {
           label: "Cloudflare R2",
+          short_label: "R2",
           fields: %w[account_id bucket],
           region_hint: "R2 has no regions.",
           key_help: "An R2 API token for this bucket with Object Read."
         },
         "other" => {
           label: "Other S3-compatible",
+          short_label: "S3",
           fields: %w[endpoint region bucket],
           region_label: "Region",
           region_hint: "Whatever your provider signs with. Try us-east-1.",
@@ -109,6 +116,7 @@ module Keepsake
         },
         "local" => {
           label: "Local directory (development only)",
+          short_label: "Local",
           fields: %w[bucket],
           region_hint: "Not used.",
           key_help: "Bucket is an absolute path to a directory on this machine."

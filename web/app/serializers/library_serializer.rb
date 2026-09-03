@@ -12,6 +12,8 @@ module LibrarySerializer
       label: library.label,
       provider: library.provider,
       providerLabel: Keepsake::Provider.form_metadata.dig(library.provider, :label),
+      # For the card badge, where the full service name crowds everything else.
+      providerShortLabel: Keepsake::Provider.form_metadata.dig(library.provider, :short_label),
       endpoint: library.endpoint,
       region: library.region,
       bucket: library.bucket,
@@ -27,6 +29,7 @@ module LibrarySerializer
       sweepState: library.sweep_state,
       sweepMessage: library.sweep_message,
       sweeping: library.sweeping?,
+      sweepFinishedAt: library.sweep_finished_at&.iso8601,
       lastVerifiedAt: library.last_verified_at&.iso8601,
       lastError: library.last_error,
       verified: library.verified?

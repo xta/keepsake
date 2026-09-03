@@ -1,6 +1,6 @@
 <script setup>
-import { Head, Link, router } from '@inertiajs/vue3'
-import { ref, onMounted, onUnmounted } from 'vue'
+import { Head, Link } from '@inertiajs/vue3'
+import { ref } from 'vue'
 import AppLayout from '../../layouts/AppLayout.vue'
 import { bytes, duration, recordedAt, timeAgo } from '../../lib/format'
 defineOptions({ layout: AppLayout })
@@ -20,24 +20,6 @@ const brokenThumbs = ref(new Set())
 function thumbBroke(id) { brokenThumbs.value = new Set(brokenThumbs.value).add(id) }
 function hasThumb(item) { return item.thumbnailUrl && !brokenThumbs.value.has(item.id) }
 
-// A sweep runs in the background, so the page asks how it is going. Polling
-// stops as soon as it is not running, and on unmount.
-let poll = null
-onMounted(() => {
-  if (!props.library.sweeping) return
-  poll = setInterval(() => {
-    router.reload({ only: ['library', 'items'] })
-  }, 3000)
-})
-onUnmounted(() => { if (poll) clearInterval(poll) })
-
-const refreshing = ref(false)
-function refresh() {
-  refreshing.value = true
-  router.post(`/libraries/${props.library.id}/refresh`, {}, {
-    onFinish: () => { refreshing.value = false },
-  })
-}
 </script>
 
 <template>
@@ -58,25 +40,10 @@ function refresh() {
         Catalog built {{ timeAgo(library.generatedAt) }}
       </p>
     </div>
-    <div class="row">
-      <button class="btn" :disabled="refreshing" @click="refresh">
-        {{ refreshing ? 'Refreshing…' : 'Refresh' }}
-      </button>
-      <!-- Writing is only offered when the stored key can write. A read-only
-           library is not shown a button it would be refused. -->
-      <Link v-if="library.writable && !library.sweeping" class="btn" :href="`/libraries/${library.id}/sweep`">Scan for new files</Link>
-      <Link class="btn" :href="`/libraries/${library.id}/edit`">Settings</Link>
-    </div>
-  </div>
-
-  <div v-if="library.sweeping" class="flash flash-notice">
-    Scanning&hellip; {{ library.sweepMessage }}
-  </div>
-  <div v-else-if="library.sweepState === 'done' && library.sweepMessage" class="flash flash-notice">
-    Last scan: {{ library.sweepMessage }}
-  </div>
-  <div v-else-if="library.sweepState === 'failed'" class="flash flash-alert">
-    Last scan failed: {{ library.sweepMessage }}
+    <!-- One quiet way in, not three competing buttons. Refreshing, scanning
+         and the last scan's result all live on the settings page now: on a
+         phone they were louder than the grid they sit above. -->
+    <Link class="settings-link" :href="`/libraries/${library.id}/edit?from=library`">Settings</Link>
   </div>
 
   <div v-if="error" class="flash flash-alert">{{ error }}</div>
@@ -132,6 +99,11 @@ function refresh() {
 </template>
 
 <style scoped>
+.settings-link {
+  align-self: center; flex: none;
+  font-size: .85rem; color: var(--muted); text-decoration: none;
+}
+.settings-link:hover { color: var(--text); text-decoration: underline; }
 .grid {
   display: grid; gap: 1.1rem;
   grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));

@@ -20,18 +20,18 @@ module Libraries
         problems: plan[:problems]
       }
     rescue Keepsake::StorageError => e
-      redirect_to library_path(@library), alert: e.message
+      redirect_to edit_library_path(@library, from: params[:from]), alert: e.message
     end
 
     def create
-      return redirect_to(library_path(@library), alert: "A scan is already running.") if @library.sweeping?
+      return redirect_to(edit_library_path(@library, from: params[:from]), alert: "A scan is already running.") if @library.sweeping?
 
       # Enqueued, not run here: reading every sidecar and decoding a frame per
       # video will outlast any request.
       SweepJob.perform_later(@library)
       @library.update!(sweep_state: "running", sweep_message: "Queued", sweep_started_at: Time.current)
 
-      redirect_to library_path(@library), notice: "Scanning. This page will keep you posted."
+      redirect_to edit_library_path(@library, from: params[:from]), notice: "Scanning. This page will keep you posted."
     end
 
     private
