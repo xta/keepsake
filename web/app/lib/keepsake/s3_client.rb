@@ -9,9 +9,16 @@ module Keepsake
     INDEX_KEY = "index.json".freeze
 
     # SigV4 checks expiry on EVERY request, and a <video> element issues range
-    # requests across the whole watch. An hour would kill a 90-minute film at
-    # the 60-minute mark and look like file corruption.
-    MEDIA_EXPIRY = 12.hours
+    # requests across the whole watch -- so this is not "how long until the page
+    # loads", it is "how long the film may run". An hour would kill a 90-minute
+    # film at the 60-minute mark and look like file corruption.
+    #
+    # Two hours covers any home movie with room to spare, and keeps the window
+    # short in the case that actually matters: a presigned URL is a bearer
+    # token, and anything that captures one -- browser history, a screenshot, a
+    # proxy log -- can read that object with no session at all. The cost is that
+    # a page left open longer than this stops seeking; reloading re-signs it.
+    MEDIA_EXPIRY = 2.hours
     THUMBNAIL_EXPIRY = 1.hour
 
     attr_reader :library
