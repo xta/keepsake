@@ -1,10 +1,23 @@
 namespace :keepsake do
-  desc "Name the organization. NAME is required."
+  desc "Rename an organization. ORG is its id; NAME is the new name."
   task "org:rename" => :environment do
-    abort "NAME is required: bin/rails keepsake:org:rename NAME=\"The Smiths\"" if ENV["NAME"].blank?
+    usage = "bin/rails keepsake:org:rename ORG=1 NAME=\"The Smiths\""
+    abort "NAME is required: #{usage}" if ENV["NAME"].blank?
 
-    org = Organization.order(:id).first
-    abort "No organization yet. Mint an invitation first: bin/rails keepsake:invite" unless org
+    # An id, always. Picking "the first one" silently renames whichever
+    # organization happens to sort earliest, which is right exactly once --
+    # while there is only one -- and quietly wrong forever after.
+    if ENV["ORG"].blank?
+      abort "No organizations yet." if Organization.none?
+      puts "ORG is required: #{usage}"
+      puts
+      puts "  id  name"
+      Organization.order(:id).each { |o| puts format("  %-3s %s", o.id, o.name) }
+      abort
+    end
+
+    org = Organization.find_by(id: ENV["ORG"])
+    abort "No organization with id #{ENV['ORG']}. Run bin/rails keepsake:orgs to list them." unless org
 
     was = org.name
     org.update!(name: ENV["NAME"])
@@ -19,7 +32,8 @@ namespace :keepsake do
     end
 
     Organization.order(:id).each do |org|
-      puts "  #{org.name} (#{org.libraries.count} #{'library'.pluralize(org.libraries.count)})"
+      # The id leads, because keepsake:org:rename asks for it by id.
+      puts "  [#{org.id}] #{org.name} (#{org.libraries.count} #{'library'.pluralize(org.libraries.count)})"
       org.users.order(:id).each { |u| puts "    #{u.email_address}" }
       puts "    no members yet" if org.users.none?
     end
