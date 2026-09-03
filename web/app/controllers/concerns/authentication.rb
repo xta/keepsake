@@ -26,7 +26,22 @@ module Authentication
     end
 
     def find_session_by_cookie
-      Session.find_by(id: cookies.signed[:session_id]) if cookies.signed[:session_id]
+      return unless cookies.signed[:session_id]
+
+      session = Session.find_by(id: cookies.signed[:session_id])
+      return unless session
+
+      # An expired session is deleted rather than merely refused. Leaving the
+      # row means the same dead cookie costs a query on every request forever,
+      # and leaving the cookie means the browser keeps presenting it.
+      if session.expired?
+        session.destroy
+        cookies.delete(:session_id)
+        return
+      end
+
+      session.touch_last_active
+      session
     end
 
     def request_authentication
@@ -41,7 +56,15 @@ module Authentication
     def start_new_session_for(user)
       user.sessions.create!(user_agent: request.user_agent, ip_address: request.remote_ip).tap do |session|
         Current.session = session
-        cookies.signed.permanent[:session_id] = { value: session.id, httponly: true, same_site: :lax }
+        # Not `permanent`, which is twenty years. The cookie is set to outlive
+        # the session by exactly nothing: once the row is past its absolute
+        # cap the cookie is worthless, so the browser may as well drop it.
+        cookies.signed[:session_id] = {
+          value: session.id,
+          expires: Session::ABSOLUTE_LIFETIME.from_now,
+          httponly: true,
+          same_site: :lax
+        }
       end
     end
 
