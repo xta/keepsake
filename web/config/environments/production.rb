@@ -86,7 +86,15 @@ Rails.application.configure do
   # entirely at the edge, and this app should not depend on what is in front of
   # it. An empty list allows everything, so a missing APP_HOST is no worse than
   # the previous behaviour rather than a silent lockout.
-  config.hosts = [ ENV.fetch("APP_HOST", nil) ].compact
+  #
+  # APP_HOST is the canonical name and is what absolute URLs are built from.
+  # ALLOWED_HOSTS carries any others the proxy also routes here -- a fallback
+  # hostname, say. Every host the proxy answers to must appear in one of the
+  # two, or Rails blocks the request after the proxy has accepted it, and a
+  # fallback reachable only when the main name is broken would be blocked on
+  # exactly the day it is needed.
+  config.hosts = [ ENV.fetch("APP_HOST", nil), *ENV.fetch("ALLOWED_HOSTS", "").split(",") ]
+    .map { |host| host.to_s.strip }.reject(&:empty?)
 
   # Skip DNS rebinding protection for the default health check endpoint.
   # Kamal healthchecks the container by address, so that request's Host is the

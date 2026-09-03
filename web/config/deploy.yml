@@ -63,6 +63,11 @@ env:
     # `kamal invite` -- and as the Host this app will answer to. Set per
     # destination.
     APP_HOST: REPLACE_ME
+    # Every OTHER hostname `proxy.hosts` answers to, comma separated. Rails
+    # blocks any Host not named here or in APP_HOST, so a fallback hostname
+    # left out of this is a 403 on the day the main name stops resolving.
+    # Set it in the destination file; omit it when there is only one host.
+    # ALLOWED_HOSTS: fallback.example.com
     # Solid Queue runs inside Puma rather than as its own container: this app
     # has no jobs in v1, and a second container per app does not pay for itself
     # on a shared server.
