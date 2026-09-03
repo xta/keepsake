@@ -8,7 +8,14 @@ class SessionsController < ApplicationController
   end
 
   def create
-    if user = User.authenticate_by(params.permit(:email_address, :password))
+    # Defaulted, not just permitted. `authenticate_by` raises ArgumentError when
+    # either key is ABSENT -- blank is fine, missing is not -- so a POST with no
+    # body was a 500 that anyone could trigger without an account. Empty strings
+    # take the ordinary "no such user" path, dummy digest and all.
+    credentials = params.permit(:email_address, :password)
+      .with_defaults(email_address: "", password: "")
+
+    if user = User.authenticate_by(credentials)
       # Read first: start_new_session_for resets the session, which is where
       # this was stored. Reversed, every sign-in lands on the root page and the
       # "carry on where you were going" behaviour disappears without a sound.
