@@ -92,11 +92,19 @@ Rails.application.configure do
   config.active_record.attributes_for_inspect = [ :id ]
 
   # Enable DNS rebinding protection and other `Host` header attacks.
-  # config.hosts = [
-  #   "example.com",     # Allow requests from example.com
-  #   /.*\.example\.com/ # Allow requests from subdomains like `www.example.com`
-  # ]
   #
+  # Rails builds absolute URLs from the incoming Host header, so an unchecked
+  # Host is an attacker deciding what this site's own URLs are. kamal-proxy
+  # already routes by Host and 404s anything it does not recognise, which means
+  # nothing reaches here with a forged one today -- but that protection lives
+  # entirely at the edge, and this app should not depend on what is in front of
+  # it. An empty list allows everything, so a missing APP_HOST is no worse than
+  # the previous behaviour rather than a silent lockout.
+  config.hosts = [ ENV.fetch("APP_HOST", nil) ].compact
+
   # Skip DNS rebinding protection for the default health check endpoint.
-  # config.host_authorization = { exclude: ->(request) { request.path == "/up" } }
+  # Kamal healthchecks the container by address, so that request's Host is the
+  # container's, never APP_HOST. Without this exclusion every deploy would wait
+  # on a container that can never report healthy.
+  config.host_authorization = { exclude: ->(request) { request.path == "/up" } }
 end

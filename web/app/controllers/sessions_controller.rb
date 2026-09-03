@@ -9,8 +9,12 @@ class SessionsController < ApplicationController
 
   def create
     if user = User.authenticate_by(params.permit(:email_address, :password))
+      # Read first: start_new_session_for resets the session, which is where
+      # this was stored. Reversed, every sign-in lands on the root page and the
+      # "carry on where you were going" behaviour disappears without a sound.
+      target = after_authentication_url
       start_new_session_for user
-      redirect_to after_authentication_url
+      redirect_to target
     else
       # Deliberately does not say which half was wrong: that difference tells
       # an attacker whether an address has an account here.

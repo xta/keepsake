@@ -15,6 +15,18 @@ class SessionsControllerTest < ActionDispatch::IntegrationTest
     assert cookies[:session_id]
   end
 
+  test "create carries you on to where you were going" do
+    get library_path(999_999)
+    assert_redirected_to new_session_path
+
+    post session_path, params: { email_address: @user.email_address, password: "password" }
+
+    # Not root: start_new_session_for resets the session this was stored in, so
+    # the target has to be read before that happens. Reverse the two and this
+    # test is the only thing that notices.
+    assert_redirected_to library_path(999_999)
+  end
+
   test "create with invalid credentials" do
     post session_path, params: { email_address: @user.email_address, password: "wrong" }
 

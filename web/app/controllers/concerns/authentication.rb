@@ -45,7 +45,16 @@ module Authentication
     end
 
     def request_authentication
-      session[:return_to_after_authenticating] = request.url
+      # A path, not a URL. `request.url` is built from the Host header, so
+      # storing one means storing wherever the request claimed to be -- and
+      # handing it to `redirect_to` after login turns this into an open
+      # redirect that begins, convincingly, on our own domain. A path cannot
+      # leave this origin no matter what Host arrives.
+      #
+      # GET only: coming back to a POST by redirect means issuing a GET at a
+      # route that may not answer one. `verify` is exactly that, so a session
+      # dying under an open form used to end at a 404 after signing in.
+      session[:return_to_after_authenticating] = request.fullpath if request.get?
       redirect_to new_session_path
     end
 
@@ -54,6 +63,13 @@ module Authentication
     end
 
     def start_new_session_for(user)
+      # Anything the browser was carrying before it proved who it was is not
+      # ours to keep: a session id fixed by somebody else survives the login
+      # otherwise. Callers that need a value from the pre-login session must
+      # read it BEFORE calling this -- `after_authentication_url` is the one
+      # that does, and SessionsController#create reads it first for that reason.
+      reset_session
+
       user.sessions.create!(user_agent: request.user_agent, ip_address: request.remote_ip).tap do |session|
         Current.session = session
         # Not `permanent`, which is twenty years. The cookie is set to outlive
