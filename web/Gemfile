@@ -25,6 +25,10 @@ gem "vite_rails"
 # speaks the same API.
 gem "aws-sdk-s3", "~> 1"
 
+# EndpointGuard resolves user-supplied hostnames with Resolv. The copy bundled
+# with Ruby (0.7.0 on 4.0) is affected by CVE-2026-80212 and CVE-2026-80213.
+gem "resolv", ">= 0.7.2"
+
 # Use the database-backed adapters for Rails.cache, Active Job, and Action Cable
 gem "solid_cache"
 gem "solid_queue"

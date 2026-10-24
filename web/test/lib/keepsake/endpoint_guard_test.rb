@@ -24,6 +24,14 @@ class Keepsake::EndpointGuardTest < ActiveSupport::TestCase
     assert_not G.safe?("https://[::ffff:127.0.0.1]/")
   end
 
+  test "refuses hostnames past DNS length limits" do
+    # Over-long names are what let the checked and resolved hosts differ.
+    assert_not G.safe?("https://#{'a' * 64}.example.com")
+    assert_not G.safe?("https://#{([ 'a' * 60 ] * 5).join('.')}.com")
+    error = assert_raises(G::Rejected) { G.validate!("https://#{'a' * 64}.com") }
+    assert_match(/too long/, error.message)
+  end
+
   test "allows a real provider endpoint" do
     assert G.safe?("https://s3.us-east-005.backblazeb2.com")
   end

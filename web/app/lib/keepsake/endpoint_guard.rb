@@ -34,6 +34,7 @@ module Keepsake
         raise Rejected, "must use https (got #{uri.scheme.presence || 'no scheme'})"
       end
       raise Rejected, "must include a hostname" if uri.host.blank?
+      raise Rejected, "hostname is too long" unless dns_length_ok?(uri.host)
 
       addresses = resolve(uri.host)
       raise Rejected, "hostname does not resolve" if addresses.empty?
@@ -72,6 +73,13 @@ module Keepsake
       end
     rescue Resolv::ResolvError, IPAddr::InvalidAddressError
       []
+    end
+
+    # A name past DNS limits can be checked as one host and resolved as
+    # another (CVE-2026-80213), so refuse it before it reaches Resolv.
+    def dns_length_ok?(host)
+      name = host.delete_suffix(".")
+      name.length <= 253 && name.split(".").all? { |label| label.length <= 63 }
     end
 
     def literal_ip?(host)
